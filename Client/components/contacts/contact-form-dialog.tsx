@@ -181,12 +181,18 @@ export function ContactFormDialog({
 
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="source">Source</Label>
-              <Input
+              <select
                 id="source"
-                className="border-zinc-800 bg-zinc-900 text-zinc-100"
-                placeholder="website, manual, import"
+                className="h-10 w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100"
                 {...form.register('source')}
-              />
+              >
+                <option value="">Select source</option>
+                <option value="manual">Manual</option>
+                <option value="csv_import">CSV Import</option>
+                <option value="api">API</option>
+                <option value="webhook">Webhook</option>
+              </select>
+              <FieldError message={form.formState.errors.source?.message} />
             </div>
 
             <div className="space-y-2 md:col-span-2">

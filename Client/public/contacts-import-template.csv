@@ -1,0 +1,4 @@
+firstName,lastName,email,phone,company,tags,customFields,notes,source
+Fahad,Zulfiqar,fahad@example.com,+923001234567,Tech Solutionor,"vip,newsletter","{""city"":""Lahore"",""plan"":""pro""}","Imported from website",csv_import
+Sara,Khan,sara@example.com,+923009876543,Acme,"lead;b2b","{""city"":""Karachi""}","Interested in demo",csv_import
+Ali,,,+923111112222,Startup Hub,whatsapp,"{""region"":""PK""}","Phone-only contact",csv_import
