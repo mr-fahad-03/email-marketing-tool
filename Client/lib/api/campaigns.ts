@@ -64,7 +64,6 @@ function cleanObject<T extends Record<string, unknown>>(input: T): T {
 function buildPayload(values: CampaignBuilderValues): Record<string, unknown> {
   return cleanObject({
     name: values.name.trim(),
-    description: values.description?.trim(),
     channel: values.channel,
     senderAccountIds: values.senderAccountIds,
     segmentId: values.targetMode === 'segment' ? values.segmentId : undefined,
@@ -75,7 +74,6 @@ function buildPayload(values: CampaignBuilderValues): Record<string, unknown> {
     sendingWindowStart: values.sendingWindowStart,
     sendingWindowEnd: values.sendingWindowEnd,
     dailyCap: values.dailyCap,
-    scheduleMode: values.scheduleMode,
     status: values.scheduleMode === 'scheduled' ? 'scheduled' : 'draft',
   });
 }
@@ -98,11 +96,29 @@ function normalizeCampaign(input: unknown): Campaign {
 
   return {
     id,
+    workspaceId: getString(record, ['workspaceId']),
     name,
     channel,
+    senderAccountIds: Array.isArray(record.senderAccountIds)
+      ? record.senderAccountIds.filter((value): value is string => typeof value === 'string')
+      : [],
+    segmentId: getString(record, ['segmentId']) ?? null,
+    contactIds: Array.isArray(record.contactIds)
+      ? record.contactIds.filter((value): value is string => typeof value === 'string')
+      : [],
+    templateId: getString(record, ['templateId']),
     status: getString(record, ['status']),
+    timezone: getString(record, ['timezone']),
+    startAt: getString(record, ['startAt']) ?? null,
+    sendingWindowStart: getString(record, ['sendingWindowStart']) ?? null,
+    sendingWindowEnd: getString(record, ['sendingWindowEnd']) ?? null,
+    dailyCap: getNumber(record, ['dailyCap']) ?? null,
+    createdAt: getString(record, ['createdAt']),
+    updatedAt: getString(record, ['updatedAt']),
     stats: {
       totalRecipients: getNumber(statsRecord, ['totalRecipients']),
+      queuedRecipients: getNumber(statsRecord, ['queuedRecipients']),
+      skippedRecipients: getNumber(statsRecord, ['skippedRecipients']),
       sentRecipients: getNumber(statsRecord, ['sentRecipients']),
       failedRecipients: getNumber(statsRecord, ['failedRecipients']),
       openCount: getNumber(statsRecord, ['openCount']),
@@ -210,5 +226,64 @@ export async function getCampaigns(params: {
   return {
     items: itemsRaw.map(normalizeCampaign),
     pagination: parsePagination(record, limit),
+  };
+}
+
+export async function getCampaignContacts(
+  campaignId: string,
+  params: { page?: number; limit?: number } = {},
+): Promise<import('@/lib/types/contact').ContactsListResult> {
+  const limit = params.limit ?? 25;
+  const payload = await apiRequest<unknown>({
+    method: 'GET',
+    url: `/campaigns/${campaignId}/contacts`,
+    params: {
+      page: params.page ?? 1,
+      limit,
+    },
+  });
+
+  if (Array.isArray(payload)) {
+    const { normalizeContact } = await import('@/lib/api/contacts-internal');
+    return {
+      items: payload.map(normalizeContact),
+      pagination: {
+        page: params.page ?? 1,
+        limit,
+        total: payload.length,
+        totalPages: 1,
+      },
+    };
+  }
+
+  const record = getRecord(payload);
+  if (!record) {
+    return {
+      items: [],
+      pagination: {
+        page: params.page ?? 1,
+        limit,
+        total: 0,
+        totalPages: 1,
+      },
+    };
+  }
+
+  const itemsRaw =
+    (Array.isArray(record.items) && record.items) ||
+    (Array.isArray(record.results) && record.results) ||
+    (Array.isArray(record.data) && record.data) ||
+    [];
+
+  const { normalizeContact } = await import('@/lib/api/contacts-internal');
+
+  return {
+    items: itemsRaw.map(normalizeContact),
+    pagination: {
+      page: getNumber(getRecord(record.pagination) ?? {}, ['page']) ?? (params.page ?? 1),
+      limit: getNumber(getRecord(record.pagination) ?? {}, ['limit']) ?? limit,
+      total: getNumber(getRecord(record.pagination) ?? {}, ['total']) ?? itemsRaw.length,
+      totalPages: getNumber(getRecord(record.pagination) ?? {}, ['totalPages']) ?? 1,
+    },
   };
 }

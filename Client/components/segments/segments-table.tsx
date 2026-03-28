@@ -66,6 +66,14 @@ function renderFilterSummary(segment: Segment) {
   const tags = segment.filters.tags;
   const status = segment.filters.status;
 
+  if (segment.contactIds.length > 0 && tags.length === 0 && status.length === 0) {
+    return (
+      <span className="text-xs text-zinc-300">
+        {segment.contactIds.length} selected contact{segment.contactIds.length === 1 ? '' : 's'}
+      </span>
+    );
+  }
+
   return (
     <div className="flex flex-wrap gap-1">
       {tags.length === 0 && status.length === 0 ? (
@@ -181,4 +189,3 @@ export function SegmentsTable({
     </Table>
   );
 }
-

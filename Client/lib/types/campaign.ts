@@ -21,11 +21,25 @@ export interface CampaignBuilderValues {
 
 export interface Campaign {
   id: string;
+  workspaceId?: string;
   name: string;
   channel: CampaignChannel;
+  senderAccountIds: string[];
+  segmentId?: string | null;
+  contactIds: string[];
+  templateId?: string;
   status?: string;
+  timezone?: string;
+  startAt?: string | null;
+  sendingWindowStart?: string | null;
+  sendingWindowEnd?: string | null;
+  dailyCap?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
   stats?: {
     totalRecipients?: number;
+    queuedRecipients?: number;
+    skippedRecipients?: number;
     sentRecipients?: number;
     failedRecipients?: number;
     openCount?: number;

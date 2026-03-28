@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
 import { MongooseModule } from '@nestjs/mongoose';
 import {
   CampaignRecipient,
@@ -22,6 +23,11 @@ import { EmailSendProcessor } from './processors/email-send.processor';
 import { WebhookProcessingProcessor } from './processors/webhook-processing.processor';
 import { WhatsappSendProcessor } from './processors/whatsapp-send.processor';
 import { QUEUE_DEFAULT_JOB_OPTIONS, REGISTERED_QUEUES } from './queue.constants';
+import {
+  BULLMQ_SHARED_CONNECTION,
+  bullmqSharedConnectionProvider,
+  QueueRedisConnectionProvider,
+} from './queue.shared.providers';
 import { QueueController } from './queue.controller';
 import { QueueService } from './queue.service';
 
@@ -31,20 +37,16 @@ import { QueueService } from './queue.service';
     EmailModule,
     WhatsappModule,
     BullModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('redis.host', { infer: true }),
-          port: configService.get<number>('redis.port', { infer: true }),
-          password: configService.get<string>('redis.password', { infer: true }),
-          db: configService.get<number>('redis.db', { infer: true }),
-        },
+      inject: [ConfigService, BULLMQ_SHARED_CONNECTION],
+      useFactory: (configService: ConfigService, connection: Redis) => ({
+        connection: connection as never,
         prefix: configService.get<string>('redis.keyPrefix', { infer: true }),
         skipVersionCheck: configService.get<boolean>('redis.skipVersionCheck', {
           infer: true,
         }),
         defaultJobOptions: QUEUE_DEFAULT_JOB_OPTIONS,
       }),
+      extraProviders: [QueueRedisConnectionProvider, bullmqSharedConnectionProvider],
     }),
     MongooseModule.forFeature([
       { name: Campaign.name, schema: CampaignSchema },

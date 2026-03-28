@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { normalizeContact } from '@/lib/api/contacts-internal';
 import type {
   Contact,
   ContactFilters,
@@ -43,46 +44,6 @@ function getNumber(record: Record<string, unknown>, keys: string[]): number | un
   }
 
   return undefined;
-}
-
-function getStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is string => typeof item === 'string');
-}
-
-function normalizeContact(input: unknown): Contact {
-  const record = getRecord(input);
-  if (!record) {
-    throw new Error('Invalid contact payload.');
-  }
-
-  const id = getString(record, ['id', '_id']);
-  if (!id) {
-    throw new Error('Contact payload is missing an ID.');
-  }
-
-  return {
-    id,
-    workspaceId: getString(record, ['workspaceId']),
-    firstName: getString(record, ['firstName']),
-    lastName: getString(record, ['lastName']),
-    fullName: getString(record, ['fullName']),
-    email: getString(record, ['email']),
-    phone: getString(record, ['phone']),
-    company: getString(record, ['company']),
-    tags: getStringArray(record.tags),
-    customFields: getRecord(record.customFields) ?? undefined,
-    emailStatus: getString(record, ['emailStatus']),
-    whatsappStatus: getString(record, ['whatsappStatus']),
-    subscriptionStatus: getString(record, ['subscriptionStatus']),
-    source: getString(record, ['source']),
-    notes: getString(record, ['notes']),
-    createdAt: getString(record, ['createdAt']),
-    updatedAt: getString(record, ['updatedAt']),
-  };
 }
 
 function parsePagination(record: Record<string, unknown>, fallbackLimit: number): ContactsPagination {

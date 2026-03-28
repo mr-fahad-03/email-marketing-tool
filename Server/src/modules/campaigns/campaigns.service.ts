@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app.exception';
 import { AuthUser } from '../../common/types/auth-user.type';
-import { Contact } from '../contacts/schemas/contact.schema';
+import { Contact, ContactDocument } from '../contacts/schemas/contact.schema';
 import { QueueService } from '../queue/queue.service';
 import { SegmentType } from '../segments/constants/segment.enums';
 import { Segment, SegmentFilters } from '../segments/schemas/segment.schema';
@@ -22,10 +22,12 @@ import {
   CampaignStatus,
 } from './constants/campaign.enums';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
+import { ListCampaignAudienceDto } from './dto/list-campaign-audience.dto';
 import { ListCampaignsDto } from './dto/list-campaigns.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { Campaign, CampaignDocument } from './schemas/campaign.schema';
 import { CampaignListResponse, CampaignResponse } from './types/campaign.response';
+import { ContactListResponse, ContactResponse } from '../contacts/types/contact.response';
 
 @Injectable()
 export class CampaignsService {
@@ -154,6 +156,66 @@ export class CampaignsService {
   async findOne(id: string, authUser: AuthUser): Promise<CampaignResponse> {
     const campaign = await this.findOwnedCampaign(id, authUser);
     return this.toResponse(campaign);
+  }
+
+  async findAudience(
+    id: string,
+    query: ListCampaignAudienceDto,
+    authUser: AuthUser,
+  ): Promise<ContactListResponse> {
+    const campaign = await this.findOwnedCampaign(id, authUser);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+
+    const audienceContactIds = await this.resolveAudienceContactIds(campaign);
+    if (!audienceContactIds.length) {
+      return {
+        items: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 1,
+          hasNext: false,
+          hasPrevious: false,
+        },
+      };
+    }
+
+    const sendabilityFilter =
+      campaign.channel === CampaignChannel.EMAIL
+        ? { email: { $nin: [null, ''] } }
+        : { phone: { $nin: [null, ''] } };
+
+    const filter = {
+      workspaceId: campaign.workspaceId,
+      _id: { $in: audienceContactIds },
+      ...sendabilityFilter,
+    };
+
+    const [items, total] = await Promise.all([
+      this.contactModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .exec(),
+      this.contactModel.countDocuments(filter).exec(),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return {
+      items: items.map((item) => this.toContactResponse(item)),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1,
+      },
+    };
   }
 
   async update(id: string, dto: UpdateCampaignDto, authUser: AuthUser): Promise<CampaignResponse> {
@@ -362,6 +424,41 @@ export class CampaignsService {
   private async resolveAudienceRecipients(
     campaign: CampaignDocument,
   ): Promise<Array<{ contactId: string; address: string }>> {
+    const audienceContactIds = await this.resolveAudienceContactIds(campaign);
+    if (!audienceContactIds.length) {
+      return [];
+    }
+    const contacts = await this.contactModel
+      .find({
+        workspaceId: campaign.workspaceId,
+        _id: { $in: audienceContactIds },
+      })
+      .select('_id email phone')
+      .lean()
+      .exec();
+
+    const recipients: Array<{ contactId: string; address: string }> = [];
+
+    for (const contact of contacts) {
+      const address =
+        campaign.channel === CampaignChannel.EMAIL
+          ? (contact.email ?? '').trim().toLowerCase()
+          : this.normalizePhone(contact.phone ?? '');
+
+      if (!address) {
+        continue;
+      }
+
+      recipients.push({
+        contactId: String(contact._id),
+        address,
+      });
+    }
+
+    return recipients;
+  }
+
+  private async resolveAudienceContactIds(campaign: CampaignDocument): Promise<Types.ObjectId[]> {
     const contactIdSet = new Set<string>(campaign.contactIds.map((id) => id.toString()));
 
     if (campaign.segmentId) {
@@ -392,41 +489,7 @@ export class CampaignsService {
       }
     }
 
-    if (!contactIdSet.size) {
-      return [];
-    }
-
-    const contactIds = Array.from(contactIdSet).map((id) =>
-      this.toObjectId(id, 'INVALID_CONTACT_ID'),
-    );
-    const contacts = await this.contactModel
-      .find({
-        workspaceId: campaign.workspaceId,
-        _id: { $in: contactIds },
-      })
-      .select('_id email phone')
-      .lean()
-      .exec();
-
-    const recipients: Array<{ contactId: string; address: string }> = [];
-
-    for (const contact of contacts) {
-      const address =
-        campaign.channel === CampaignChannel.EMAIL
-          ? (contact.email ?? '').trim().toLowerCase()
-          : this.normalizePhone(contact.phone ?? '');
-
-      if (!address) {
-        continue;
-      }
-
-      recipients.push({
-        contactId: String(contact._id),
-        address,
-      });
-    }
-
-    return recipients;
+    return Array.from(contactIdSet).map((id) => this.toObjectId(id, 'INVALID_CONTACT_ID'));
   }
 
   private async findDynamicSegmentContactIds(
@@ -691,6 +754,28 @@ export class CampaignsService {
       },
       createdAt: campaign.createdAt,
       updatedAt: campaign.updatedAt,
+    };
+  }
+
+  private toContactResponse(contact: ContactDocument): ContactResponse {
+    return {
+      id: contact.id,
+      workspaceId: contact.workspaceId.toString(),
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      fullName: contact.fullName,
+      email: contact.email,
+      phone: contact.phone,
+      company: contact.company,
+      tags: [...contact.tags],
+      customFields: { ...(contact.customFields ?? {}) },
+      emailStatus: contact.emailStatus,
+      whatsappStatus: contact.whatsappStatus,
+      subscriptionStatus: contact.subscriptionStatus,
+      source: contact.source,
+      notes: contact.notes,
+      createdAt: contact.createdAt,
+      updatedAt: contact.updatedAt,
     };
   }
 

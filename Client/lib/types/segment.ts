@@ -12,6 +12,7 @@ export interface Segment {
   description?: string;
   type: SegmentType;
   filters: SegmentFilters;
+  contactIds: string[];
   estimatedCount: number;
   createdAt?: string;
   updatedAt?: string;
@@ -36,4 +37,3 @@ export interface SegmentQueryFilters {
   page?: number;
   limit?: number;
 }
-

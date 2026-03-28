@@ -5,9 +5,11 @@ import { AuthUser } from '../../common/types/auth-user.type';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
+import { ListCampaignAudienceDto } from './dto/list-campaign-audience.dto';
 import { ListCampaignsDto } from './dto/list-campaigns.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { CampaignListResponse, CampaignResponse } from './types/campaign.response';
+import { ContactListResponse } from '../contacts/types/contact.response';
 
 @Controller('campaigns')
 @UseGuards(JwtAuthGuard)
@@ -28,6 +30,15 @@ export class CampaignsController {
     @CurrentUser() authUser: AuthUser,
   ): Promise<CampaignListResponse> {
     return this.campaignsService.findAll(query, authUser);
+  }
+
+  @Get(':id/contacts')
+  findAudience(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Query() query: ListCampaignAudienceDto,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<ContactListResponse> {
+    return this.campaignsService.findAudience(id, query, authUser);
   }
 
   @Get(':id')

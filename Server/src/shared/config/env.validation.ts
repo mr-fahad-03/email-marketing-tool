@@ -17,6 +17,7 @@ export const envValidationSchema = Joi.object({
   REDIS_PASSWORD: Joi.string().allow('').optional(),
   REDIS_DB: Joi.number().min(0).default(0),
   BULLMQ_PREFIX: Joi.string().default('marketing-platform'),
+  BULLMQ_SKIP_VERSION_CHECK: Joi.boolean().truthy('true').falsy('false').default(false),
   QUEUE_DEFAULT_ATTEMPTS: Joi.number().integer().min(1).default(5),
   QUEUE_DEFAULT_BACKOFF_MS: Joi.number().integer().min(1).default(5000),
   CONTACT_IMPORT_CONCURRENCY: Joi.number().integer().min(1).default(2),

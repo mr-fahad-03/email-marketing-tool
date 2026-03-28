@@ -88,6 +88,7 @@ function normalizeSegment(input: unknown): Segment {
     description: getString(record, ['description']),
     type,
     filters: normalizeFilters(record.filters),
+    contactIds: toStringArray(record.contactIds),
     estimatedCount:
       getNumber(record, ['estimatedCount', 'contactCount', 'count']) ?? 0,
     createdAt: getString(record, ['createdAt']),
@@ -108,15 +109,17 @@ function parsePagination(record: Record<string, unknown>, fallbackLimit: number)
 
 function buildPayload(values: SegmentFormValues): Record<string, unknown> {
   const [subscriptionStatus] = values.filterStatus;
+  const isContactDrivenStatic = values.type === 'static' && values.audienceMode === 'contacts';
 
   return {
     name: values.name.trim(),
     description: values.description?.trim() || undefined,
     type: values.type,
     filters: {
-      tags: values.filterTags,
-      subscriptionStatus,
+      tags: isContactDrivenStatic ? [] : values.filterTags,
+      subscriptionStatus: isContactDrivenStatic ? undefined : subscriptionStatus,
     },
+    contactIds: values.type === 'static' ? values.contactIds : undefined,
   };
 }
 
