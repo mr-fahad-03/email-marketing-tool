@@ -35,6 +35,17 @@ export interface ContactsListResult {
 
 export interface ContactFilters {
   search?: string;
+  contactName?: string;
+  email?: string;
+  company?: string;
+  country?: string;
+  city?: string;
+  telephone?: string;
+  mobile?: string;
+  additionalNumber?: string;
+  designation?: string;
+  department?: string;
+  leadSource?: string;
   category?: string;
   labels?: string[];
   status?: string;

@@ -81,13 +81,49 @@ function cleanPayload(values: ContactFormValues): Record<string, unknown> {
     ),
   );
 
+  const resolvePrimaryPhone = () => {
+    const candidates = [values.mobile, values.telephone, values.additionalNumber, values.phone];
+    for (const candidate of candidates) {
+      const normalized = candidate?.trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return undefined;
+  };
+
+  const mergedCustomFields: Record<string, unknown> = {
+    ...(values.customFields ?? {}),
+  };
+
+  const csvCustomFieldMap: Array<[string, string | undefined]> = [
+    ['country', values.country?.trim()],
+    ['city', values.city?.trim()],
+    ['telephone', values.telephone?.trim()],
+    ['mobile', values.mobile?.trim()],
+    ['additionalNumber', values.additionalNumber?.trim()],
+    ['designation', values.designation?.trim()],
+    ['department', values.department?.trim()],
+    ['leadSource', values.leadSource?.trim()],
+  ];
+
+  for (const [key, fieldValue] of csvCustomFieldMap) {
+    if (fieldValue) {
+      mergedCustomFields[key] = fieldValue;
+    } else if (key in mergedCustomFields) {
+      delete mergedCustomFields[key];
+    }
+  }
+
   const payload: Record<string, unknown> = {
     fullName: values.fullName?.trim() || undefined,
     email: values.email?.trim() || undefined,
-    phone: values.phone?.trim() || undefined,
+    phone: resolvePrimaryPhone(),
     company: values.company?.trim() || undefined,
     category: normalizedCategory,
     labels: normalizedLabels,
+    customFields: Object.keys(mergedCustomFields).length ? mergedCustomFields : undefined,
     notes: values.notes?.trim() || undefined,
     subscriptionStatus: normalizedSubscriptionStatus,
   };
@@ -104,6 +140,17 @@ export async function getContacts(filters: ContactFilters = {}): Promise<Contact
       page: filters.page ?? 1,
       limit,
       search: filters.search || undefined,
+      contactName: filters.contactName || undefined,
+      email: filters.email || undefined,
+      company: filters.company || undefined,
+      country: filters.country || undefined,
+      city: filters.city || undefined,
+      telephone: filters.telephone || undefined,
+      mobile: filters.mobile || undefined,
+      additionalNumber: filters.additionalNumber || undefined,
+      designation: filters.designation || undefined,
+      department: filters.department || undefined,
+      leadSource: filters.leadSource || undefined,
       category: filters.category || undefined,
       labels: filters.labels?.length ? filters.labels.join(',') : undefined,
       subscriptionStatus: filters.status || undefined,

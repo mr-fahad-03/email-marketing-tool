@@ -32,6 +32,61 @@ export class ListContactsDto {
   readonly category?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly contactName?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly email?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly company?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly country?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly city?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly telephone?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly mobile?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly additionalNumber?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly designation?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly department?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  readonly leadSource?: string;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (Array.isArray(value)) {
       return value;

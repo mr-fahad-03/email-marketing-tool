@@ -41,16 +41,33 @@ function normalizeSubscriptionStatus(value: string | undefined): string {
   return 'subscribed';
 }
 
+function getCustomFieldString(contact: Contact | null | undefined, key: string): string {
+  const value = contact?.customFields?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
 function getDefaultValues(contact?: Contact | null): ContactFormValues {
   return {
     fullName: contact?.fullName ?? '',
     email: contact?.email ?? '',
     phone: contact?.phone ?? '',
+    telephone: getCustomFieldString(contact, 'telephone'),
+    mobile: getCustomFieldString(contact, 'mobile') || contact?.phone || '',
+    additionalNumber: getCustomFieldString(contact, 'additionalNumber'),
     company: contact?.company ?? '',
+    country: getCustomFieldString(contact, 'country'),
+    city: getCustomFieldString(contact, 'city'),
+    designation: getCustomFieldString(contact, 'designation'),
+    department: getCustomFieldString(contact, 'department'),
+    leadSource: getCustomFieldString(contact, 'leadSource'),
     category: contact?.category ?? contact?.labels?.[0] ?? '',
     labels: contact?.labels ?? [],
     notes: contact?.notes ?? '',
     subscriptionStatus: normalizeSubscriptionStatus(contact?.subscriptionStatus),
+    customFields:
+      contact?.customFields && typeof contact.customFields === 'object'
+        ? (contact.customFields as Record<string, unknown>)
+        : {},
   };
 }
 
@@ -102,18 +119,36 @@ export function ContactFormDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Contact' : 'Add Contact'}</DialogTitle>
           <DialogDescription>
-            Manage contact details, category, labels, and subscription metadata.
+            Manage contact details based on your CSV fields, plus category and labels.
           </DialogDescription>
         </DialogHeader>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="company">Company</Label>
+              <Input
+                id="company"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                {...form.register('company')}
+              />
+            </div>
+
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="fullName">Full Name</Label>
+              <Label htmlFor="fullName">Contact Name</Label>
               <Input
                 id="fullName"
                 className="border-zinc-800 bg-zinc-900 text-zinc-100"
                 {...form.register('fullName')}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="country">Country</Label>
+              <Input
+                id="country"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                {...form.register('country')}
               />
             </div>
 
@@ -129,20 +164,47 @@ export function ContactFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone</Label>
+              <Label htmlFor="telephone">Telephone</Label>
               <Input
-                id="phone"
+                id="telephone"
                 className="border-zinc-800 bg-zinc-900 text-zinc-100"
-                {...form.register('phone')}
+                {...form.register('telephone')}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="company">Company</Label>
+              <Label htmlFor="mobile">Mobile</Label>
               <Input
-                id="company"
+                id="mobile"
                 className="border-zinc-800 bg-zinc-900 text-zinc-100"
-                {...form.register('company')}
+                {...form.register('mobile')}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="additionalNumber">Additional Number</Label>
+              <Input
+                id="additionalNumber"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                {...form.register('additionalNumber')}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="designation">Designation</Label>
+              <Input
+                id="designation"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                {...form.register('designation')}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="department">Department</Label>
+              <Input
+                id="department"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                {...form.register('department')}
               />
             </div>
 
@@ -160,6 +222,25 @@ export function ContactFormDialog({
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="city">City</Label>
+              <Input
+                id="city"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                {...form.register('city')}
+              />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="leadSource">Source</Label>
+              <Input
+                id="leadSource"
+                className="border-zinc-800 bg-zinc-900 text-zinc-100"
+                placeholder="lead generation, imported from website, etc."
+                {...form.register('leadSource')}
+              />
             </div>
 
             <div className="space-y-2">

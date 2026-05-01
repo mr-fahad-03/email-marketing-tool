@@ -1,4 +1,4 @@
-firstName,lastName,email,phone,company,category,labels,customFields,notes,source
-Fahad,Zulfiqar,fahad@example.com,+923001234567,Tech Solutionor,vip,"newsletter,paid","{""city"":""Lahore"",""plan"":""pro""}","Imported from website",csv_import
-Sara,Khan,sara@example.com,+923009876543,Acme,b2b,lead,"{""city"":""Karachi""}","Interested in demo",csv_import
-Ali,,,+923111112222,Startup Hub,whatsapp,follow_up,"{""region"":""PK""}","Phone-only contact",csv_import
+company,Contact name,Country,email,Telephone,Mobile,Additional number,Desigination,Department,category,City,Source
+Tech Solutionor,Fahad Zulfiqar,UAE,fahad@example.com,12345689099,923001234567,923001234567,Manager,Sales,vip,Dubai,Imported from website
+Acme,Sara Khan,UAE,sara@example.com,12345689099,923009876543,923009876543,Supervisor,IT,b2b,Abu Dhabi,Interested in demo
+Startup Hub,Ali,Qatar,,12345689099,923111112222,923111112222,CEO,Company,whatsapp,Doha,Phone-only contact

@@ -31,8 +31,8 @@ export function CsvImportCard({ isImporting = false, onImport }: CsvImportCardPr
       <CardHeader>
         <CardTitle className="text-base">CSV Import</CardTitle>
         <CardDescription className="text-zinc-400">
-          Upload contacts in bulk using a CSV file. Use `category` to auto-assign categories and
-          `labels` for email labeling.
+          Upload contacts in bulk using your CSV structure: company, contact name, country, email,
+          telephone, mobile, additional number, designation, department, category, city, and source.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">

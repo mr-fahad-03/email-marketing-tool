@@ -45,6 +45,11 @@ interface ContactWriteInput {
   notes?: string;
 }
 
+interface BuildContactPayloadOptions {
+  allowMissingContactMethod?: boolean;
+  fallbackFullName?: string;
+}
+
 @Injectable()
 export class ContactsService {
   constructor(
@@ -99,6 +104,18 @@ export class ContactsService {
       workspaceId: this.toObjectId(workspaceId),
     };
     const andConditions: Record<string, unknown>[] = [];
+    const createStartsWithRegex = (value: string): RegExp =>
+      new RegExp(`^${this.escapeRegex(value)}`, 'i');
+    const addStringStartsWithFilter = (fieldPath: string, value: string | undefined): void => {
+      const normalizedValue = this.cleanString(value);
+      if (!normalizedValue) {
+        return;
+      }
+
+      andConditions.push({
+        [fieldPath]: createStartsWithRegex(normalizedValue),
+      });
+    };
 
     if (query.emailStatus) {
       filter.emailStatus = query.emailStatus;
@@ -147,6 +164,39 @@ export class ContactsService {
       filter.labels = { $in: query.labels.map((label) => this.normalizeLabel(label)) };
     }
 
+    addStringStartsWithFilter('fullName', query.contactName);
+    addStringStartsWithFilter('email', query.email);
+    addStringStartsWithFilter('company', query.company);
+    addStringStartsWithFilter('customFields.country', query.country);
+    addStringStartsWithFilter('customFields.city', query.city);
+    addStringStartsWithFilter('customFields.designation', query.designation);
+    addStringStartsWithFilter('customFields.department', query.department);
+    addStringStartsWithFilter('customFields.leadSource', query.leadSource);
+
+    const telephoneFilter = this.cleanString(query.telephone);
+    if (telephoneFilter) {
+      const regex = createStartsWithRegex(telephoneFilter);
+      andConditions.push({
+        $or: [{ phone: regex }, { 'customFields.telephone': regex }],
+      });
+    }
+
+    const mobileFilter = this.cleanString(query.mobile);
+    if (mobileFilter) {
+      const regex = createStartsWithRegex(mobileFilter);
+      andConditions.push({
+        $or: [{ phone: regex }, { 'customFields.mobile': regex }],
+      });
+    }
+
+    const additionalNumberFilter = this.cleanString(query.additionalNumber);
+    if (additionalNumberFilter) {
+      const regex = createStartsWithRegex(additionalNumberFilter);
+      andConditions.push({
+        $or: [{ phone: regex }, { 'customFields.additionalNumber': regex }],
+      });
+    }
+
     if (query.search) {
       const escaped = this.escapeRegex(query.search.trim());
       const searchRegex = new RegExp(escaped, 'i');
@@ -159,6 +209,14 @@ export class ContactsService {
           { email: searchRegex },
           { phone: searchRegex },
           { company: searchRegex },
+          { 'customFields.country': searchRegex },
+          { 'customFields.city': searchRegex },
+          { 'customFields.designation': searchRegex },
+          { 'customFields.department': searchRegex },
+          { 'customFields.leadSource': searchRegex },
+          { 'customFields.telephone': searchRegex },
+          { 'customFields.mobile': searchRegex },
+          { 'customFields.additionalNumber': searchRegex },
         ],
       });
     }
@@ -533,6 +591,14 @@ export class ContactsService {
     workspaceId: string,
     row: ParsedContactCsvRow,
   ): Promise<'created' | 'skipped'> {
+    const fallbackFullName =
+      this.cleanString(row.fullName) ||
+      this.cleanString([row.firstName, row.lastName].filter(Boolean).join(' ')) ||
+      this.cleanString(row.company) ||
+      this.cleanString(row.email) ||
+      this.cleanString(row.phone) ||
+      `Imported Contact ${row.rowNumber}`;
+
     const payload = this.buildContactPayload({
       firstName: row.firstName,
       lastName: row.lastName,
@@ -548,6 +614,9 @@ export class ContactsService {
       emailStatus: ContactEmailStatus.UNKNOWN,
       whatsappStatus: ContactWhatsappStatus.UNKNOWN,
       subscriptionStatus: ContactSubscriptionStatus.SUBSCRIBED,
+    }, {
+      allowMissingContactMethod: true,
+      fallbackFullName,
     });
 
     const duplicateFilter: Record<string, unknown>[] = [];
@@ -558,25 +627,19 @@ export class ContactsService {
       duplicateFilter.push({ phoneNormalized: payload.phoneNormalized });
     }
 
-    if (!duplicateFilter.length) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        'CONTACT_METHOD_REQUIRED',
-        'Each imported row must contain email or phone',
-      );
-    }
+    if (duplicateFilter.length) {
+      const existing = await this.contactModel
+        .findOne({
+          workspaceId: this.toObjectId(workspaceId),
+          $or: duplicateFilter,
+        })
+        .select('_id')
+        .lean()
+        .exec();
 
-    const existing = await this.contactModel
-      .findOne({
-        workspaceId: this.toObjectId(workspaceId),
-        $or: duplicateFilter,
-      })
-      .select('_id')
-      .lean()
-      .exec();
-
-    if (existing) {
-      return 'skipped';
+      if (existing) {
+        return 'skipped';
+      }
     }
 
     await this.saveWithDuplicateHandling(
@@ -594,7 +657,7 @@ export class ContactsService {
     return 'created';
   }
 
-  private buildContactPayload(input: ContactWriteInput): {
+  private buildContactPayload(input: ContactWriteInput, options: BuildContactPayloadOptions = {}): {
     firstName: string;
     lastName: string;
     fullName: string;
@@ -620,13 +683,14 @@ export class ContactsService {
       this.cleanString(input.fullName) ||
       [firstName, lastName].filter(Boolean).join(' ').trim() ||
       this.cleanString(input.email) ||
-      this.cleanString(input.phone);
+      this.cleanString(input.phone) ||
+      this.cleanString(options.fallbackFullName);
 
     const email = this.normalizeEmail(input.email);
     const phone = this.normalizePhone(input.phone);
     const labels = this.normalizeLabels(input.labels ?? []);
 
-    if (!email && !phone) {
+    if (!email && !phone && !options.allowMissingContactMethod) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
         'CONTACT_METHOD_REQUIRED',

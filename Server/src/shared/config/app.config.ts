@@ -1,13 +1,32 @@
-﻿import { registerAs } from '@nestjs/config';
+import { registerAs } from '@nestjs/config';
+
+function resolveCorsOrigins(nodeEnv: string, rawOrigins: string): string[] {
+  const configuredOrigins = rawOrigins
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (nodeEnv !== 'production') {
+    return Array.from(
+      new Set([
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        ...configuredOrigins,
+      ]),
+    );
+  }
+
+  return configuredOrigins;
+}
 
 export const appConfig = registerAs('app', () => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 5000),
   apiPrefix: process.env.API_PREFIX ?? '',
-  corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  corsOrigins: resolveCorsOrigins(
+    process.env.NODE_ENV ?? 'development',
+    process.env.CORS_ORIGINS ?? 'http://localhost:3000',
+  ),
 }));
 
 export const mongoConfig = registerAs('mongo', () => ({

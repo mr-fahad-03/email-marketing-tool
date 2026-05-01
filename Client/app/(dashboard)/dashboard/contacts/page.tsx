@@ -4,7 +4,10 @@ import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { ContactFormDialog } from '@/components/contacts/contact-form-dialog';
-import { ContactsFilters } from '@/components/contacts/contacts-filters';
+import {
+  ContactsFilters,
+  type ContactsFilterState,
+} from '@/components/contacts/contacts-filters';
 import { ContactsTable } from '@/components/contacts/contacts-table';
 import { CsvImportCard } from '@/components/contacts/csv-import-card';
 import { Button } from '@/components/ui/button';
@@ -45,6 +48,23 @@ const DEFAULT_PAGINATION: ContactsPagination = {
   totalPages: 1,
 };
 
+const DEFAULT_FILTERS: ContactsFilterState = {
+  search: '',
+  status: '',
+  category: '',
+  contactName: '',
+  email: '',
+  company: '',
+  country: '',
+  city: '',
+  telephone: '',
+  mobile: '',
+  additionalNumber: '',
+  designation: '',
+  department: '',
+  leadSource: '',
+};
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof HttpClientError) {
     return error.message;
@@ -66,10 +86,7 @@ export default function ContactsPage() {
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [filters, setFilters] = useState<ContactsFilterState>(DEFAULT_FILTERS);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -86,16 +103,8 @@ export default function ContactsPage() {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search.trim());
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  useEffect(() => {
     setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [categoryFilter, debouncedSearch, statusFilter]);
+  }, [filters]);
 
   const loadContacts = useCallback(async () => {
     setIsLoading(true);
@@ -104,9 +113,20 @@ export default function ContactsPage() {
       const response = await getContacts({
         page: pagination.page,
         limit: pagination.limit,
-        search: debouncedSearch || undefined,
-        status: statusFilter || undefined,
-        category: categoryFilter || undefined,
+        search: filters.search.trim() || undefined,
+        contactName: filters.contactName.trim() || undefined,
+        email: filters.email.trim() || undefined,
+        company: filters.company.trim() || undefined,
+        country: filters.country.trim() || undefined,
+        city: filters.city.trim() || undefined,
+        telephone: filters.telephone.trim() || undefined,
+        mobile: filters.mobile.trim() || undefined,
+        additionalNumber: filters.additionalNumber.trim() || undefined,
+        designation: filters.designation.trim() || undefined,
+        department: filters.department.trim() || undefined,
+        leadSource: filters.leadSource.trim() || undefined,
+        status: filters.status || undefined,
+        category: filters.category || undefined,
       });
 
       setContacts(response.items);
@@ -117,7 +137,7 @@ export default function ContactsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [categoryFilter, debouncedSearch, pagination.limit, pagination.page, statusFilter]);
+  }, [filters, pagination.limit, pagination.page]);
 
   useEffect(() => {
     void loadContacts();
@@ -148,6 +168,14 @@ export default function ContactsPage() {
 
     void loadCategorySummary();
   }, [isAllCategoriesModalOpen, loadCategorySummary]);
+
+  const handleFilterChange = (patch: Partial<ContactsFilterState>) => {
+    setFilters((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handleResetFilters = () => {
+    setFilters(DEFAULT_FILTERS);
+  };
 
   const openCreate = () => {
     setEditingContact(null);
@@ -323,7 +351,7 @@ export default function ContactsPage() {
 
       setBulkTargetCategory(savedCategory);
 
-      setCategoryFilter(savedCategory);
+      setFilters((prev) => ({ ...prev, category: savedCategory }));
       setNewCategoryInput('');
       setIsCategoryDialogOpen(false);
 
@@ -394,13 +422,10 @@ export default function ContactsPage() {
         <CardHeader className="space-y-4">
           <CardTitle className="text-base">Filters</CardTitle>
           <ContactsFilters
-            search={search}
-            status={statusFilter}
-            category={categoryFilter}
+            filters={filters}
             categoryOptions={categoryOptions}
-            onSearchChange={setSearch}
-            onStatusChange={setStatusFilter}
-            onCategoryChange={setCategoryFilter}
+            onChange={handleFilterChange}
+            onReset={handleResetFilters}
           />
 
           <div className="flex flex-col gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -557,7 +582,7 @@ export default function ContactsPage() {
                 type="button"
                 className="flex w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-100 hover:bg-zinc-800"
                 onClick={() => {
-                  setCategoryFilter('');
+                  setFilters((prev) => ({ ...prev, category: '' }));
                   setIsAllCategoriesModalOpen(false);
                 }}
               >
@@ -574,7 +599,7 @@ export default function ContactsPage() {
                     type="button"
                     className="flex w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-100 hover:bg-zinc-800"
                     onClick={() => {
-                      setCategoryFilter(item.category);
+                      setFilters((prev) => ({ ...prev, category: item.category }));
                       setIsAllCategoriesModalOpen(false);
                     }}
                   >
