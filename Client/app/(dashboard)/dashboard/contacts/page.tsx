@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { Columns3, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { ContactFormDialog } from '@/components/contacts/contact-form-dialog';
@@ -8,10 +8,22 @@ import {
   ContactsFilters,
   type ContactsFilterState,
 } from '@/components/contacts/contacts-filters';
-import { ContactsTable } from '@/components/contacts/contacts-table';
+import {
+  CONTACTS_TABLE_BASE_COLUMNS,
+  ContactsTable,
+  type ContactsTableColumn,
+} from '@/components/contacts/contacts-table';
 import { CsvImportCard } from '@/components/contacts/csv-import-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -52,18 +64,47 @@ const DEFAULT_FILTERS: ContactsFilterState = {
   search: '',
   status: '',
   category: '',
-  contactName: '',
-  email: '',
-  company: '',
-  country: '',
-  city: '',
-  telephone: '',
-  mobile: '',
-  additionalNumber: '',
-  designation: '',
-  department: '',
-  leadSource: '',
 };
+
+const COLUMN_VISIBILITY_STORAGE_KEY = 'contacts-table-column-visibility.v1';
+
+const CUSTOM_FIELD_LABEL_OVERRIDES: Record<string, string> = {
+  country: 'Country',
+  city: 'City',
+  telephone: 'Telephone',
+  mobile: 'Mobile',
+  additionalNumber: 'Additional Number',
+  designation: 'Designation',
+  department: 'Department',
+  leadSource: 'Lead Source',
+};
+
+const PREFERRED_CUSTOM_FIELD_ORDER = [
+  'country',
+  'city',
+  'telephone',
+  'mobile',
+  'additionalNumber',
+  'designation',
+  'department',
+  'leadSource',
+];
+
+function formatColumnLabelFromKey(fieldKey: string): string {
+  const formatted = fieldKey
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+
+  if (!formatted) {
+    return fieldKey;
+  }
+
+  return formatted
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof HttpClientError) {
@@ -101,6 +142,129 @@ export default function ContactsPage() {
   const [createdCategories, setCreatedCategories] = useState<string[]>([]);
   const [applyCategoryToSelected, setApplyCategoryToSelected] = useState(true);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [discoveredCustomFieldKeys, setDiscoveredCustomFieldKeys] = useState<string[]>([]);
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({});
+  const [hasHydratedColumnVisibility, setHasHydratedColumnVisibility] = useState(false);
+
+  useEffect(() => {
+    const fieldKeys = new Set<string>();
+
+    contacts.forEach((contact) => {
+      const customFields = contact.customFields;
+      if (!customFields) {
+        return;
+      }
+
+      Object.keys(customFields).forEach((key) => {
+        const normalizedKey = key.trim();
+        if (normalizedKey.length > 0) {
+          fieldKeys.add(normalizedKey);
+        }
+      });
+    });
+
+    setDiscoveredCustomFieldKeys((prev) => {
+      const next = new Set(prev);
+      fieldKeys.forEach((key) => next.add(key));
+      return Array.from(next);
+    });
+  }, [contacts]);
+
+  const customFieldColumns = useMemo<ContactsTableColumn[]>(() => {
+    const keyEntries = [...discoveredCustomFieldKeys];
+    keyEntries.sort((a, b) => {
+      const preferredA = PREFERRED_CUSTOM_FIELD_ORDER.indexOf(a);
+      const preferredB = PREFERRED_CUSTOM_FIELD_ORDER.indexOf(b);
+
+      if (preferredA !== -1 || preferredB !== -1) {
+        if (preferredA === -1) {
+          return 1;
+        }
+        if (preferredB === -1) {
+          return -1;
+        }
+        return preferredA - preferredB;
+      }
+
+      return a.localeCompare(b);
+    });
+
+    return keyEntries.map((fieldKey) => ({
+      id: `custom:${fieldKey}`,
+      label: CUSTOM_FIELD_LABEL_OVERRIDES[fieldKey] ?? formatColumnLabelFromKey(fieldKey),
+      type: 'custom',
+      customFieldKey: fieldKey,
+    }));
+  }, [discoveredCustomFieldKeys]);
+
+  const tableColumns = useMemo<ContactsTableColumn[]>(
+    () => [...CONTACTS_TABLE_BASE_COLUMNS, ...customFieldColumns],
+    [customFieldColumns],
+  );
+
+  const visibleColumnIds = useMemo(
+    () => tableColumns.filter((column) => columnVisibility[column.id] !== false).map((column) => column.id),
+    [columnVisibility, tableColumns],
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setHasHydratedColumnVisibility(true);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return;
+      }
+
+      const normalized = Object.entries(parsed as Record<string, unknown>).reduce<Record<string, boolean>>(
+        (acc, [key, value]) => {
+          if (typeof value === 'boolean') {
+            acc[key] = value;
+          }
+          return acc;
+        },
+        {},
+      );
+
+      setColumnVisibility(normalized);
+    } catch {
+      // ignore malformed persisted data
+    } finally {
+      setHasHydratedColumnVisibility(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    setColumnVisibility((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      tableColumns.forEach((column) => {
+        if (!(column.id in next)) {
+          next[column.id] = true;
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [tableColumns]);
+
+  useEffect(() => {
+    if (!hasHydratedColumnVisibility || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(columnVisibility));
+  }, [columnVisibility, hasHydratedColumnVisibility]);
 
   useEffect(() => {
     setPagination((prev) => ({ ...prev, page: 1 }));
@@ -114,17 +278,6 @@ export default function ContactsPage() {
         page: pagination.page,
         limit: pagination.limit,
         search: filters.search.trim() || undefined,
-        contactName: filters.contactName.trim() || undefined,
-        email: filters.email.trim() || undefined,
-        company: filters.company.trim() || undefined,
-        country: filters.country.trim() || undefined,
-        city: filters.city.trim() || undefined,
-        telephone: filters.telephone.trim() || undefined,
-        mobile: filters.mobile.trim() || undefined,
-        additionalNumber: filters.additionalNumber.trim() || undefined,
-        designation: filters.designation.trim() || undefined,
-        department: filters.department.trim() || undefined,
-        leadSource: filters.leadSource.trim() || undefined,
         status: filters.status || undefined,
         category: filters.category || undefined,
       });
@@ -175,6 +328,28 @@ export default function ContactsPage() {
 
   const handleResetFilters = () => {
     setFilters(DEFAULT_FILTERS);
+  };
+
+  const handleToggleColumnVisibility = (columnId: string, checked: boolean | 'indeterminate') => {
+    const shouldShow = checked === true;
+
+    setColumnVisibility((prev) => {
+      const currentlyVisibleCount = tableColumns.reduce((count, column) => {
+        const isVisible = prev[column.id] !== false;
+        return isVisible ? count + 1 : count;
+      }, 0);
+
+      const isCurrentlyVisible = prev[columnId] !== false;
+      if (!shouldShow && isCurrentlyVisible && currentlyVisibleCount <= 1) {
+        toast.error('At least one column must remain visible.');
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [columnId]: shouldShow,
+      };
+    });
   };
 
   const openCreate = () => {
@@ -428,6 +603,30 @@ export default function ContactsPage() {
             onReset={handleResetFilters}
           />
 
+          <div className="flex justify-start">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" className="border-zinc-700 text-zinc-200 hover:bg-zinc-800">
+                  <Columns3 className="mr-2 h-4 w-4" />
+                  Columns ({visibleColumnIds.length}/{tableColumns.length})
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[340px] w-64 overflow-y-auto">
+                <DropdownMenuLabel>Toggle Table Columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {tableColumns.map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={columnVisibility[column.id] !== false}
+                    onCheckedChange={(checked) => handleToggleColumnVisibility(column.id, checked)}
+                  >
+                    {column.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
           <div className="flex flex-col gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-zinc-400">
               {selectedIds.length} selected
@@ -468,6 +667,8 @@ export default function ContactsPage() {
         <CardContent className="space-y-4">
           <ContactsTable
             contacts={contacts}
+            columns={tableColumns}
+            visibleColumnIds={visibleColumnIds}
             isLoading={isLoading}
             selectedIds={selectedIds}
             deletingId={deletingId}

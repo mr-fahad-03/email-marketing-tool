@@ -12,8 +12,44 @@ import {
 import { SubscriptionStatusBadge } from '@/components/contacts/subscription-status-badge';
 import type { Contact } from '@/lib/types/contact';
 
+export interface ContactsTableColumn {
+  id: string;
+  label: string;
+  type: 'static' | 'custom';
+  customFieldKey?: string;
+}
+
+export const CONTACTS_TABLE_BASE_COLUMNS: ContactsTableColumn[] = [
+  { id: 'name', label: 'Name', type: 'static' },
+  { id: 'email', label: 'Email', type: 'static' },
+  { id: 'phone', label: 'Phone', type: 'static' },
+  { id: 'company', label: 'Company', type: 'static' },
+  { id: 'status', label: 'Status', type: 'static' },
+  { id: 'category', label: 'Category', type: 'static' },
+  { id: 'labels', label: 'Labels', type: 'static' },
+];
+
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  if (Array.isArray(value)) {
+    const normalized = value.map((item) => String(item)).filter((item) => item.trim().length > 0);
+    return normalized.length > 0 ? normalized.join(', ') : '-';
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
 interface ContactsTableProps {
   contacts: Contact[];
+  columns: ContactsTableColumn[];
+  visibleColumnIds: string[];
   isLoading?: boolean;
   selectedIds: string[];
   deletingId?: string | null;
@@ -23,38 +59,16 @@ interface ContactsTableProps {
   onDelete: (contact: Contact) => void;
 }
 
-function LoadingRows() {
+function LoadingRows({ columnCount }: { columnCount: number }) {
   return (
     <>
       {Array.from({ length: 8 }).map((_, idx) => (
         <TableRow key={idx}>
-          <TableCell>
-            <Skeleton className="h-4 w-4 rounded-sm" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-36" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-44" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-24" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-24" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-5 w-16" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-20" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-24" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-8 w-24" />
-          </TableCell>
+          {Array.from({ length: columnCount }).map((_, columnIndex) => (
+            <TableCell key={columnIndex}>
+              <Skeleton className="h-4 w-24" />
+            </TableCell>
+          ))}
         </TableRow>
       ))}
     </>
@@ -76,6 +90,8 @@ function getDisplayName(contact: Contact): string {
 
 export function ContactsTable({
   contacts,
+  columns,
+  visibleColumnIds,
   isLoading = false,
   selectedIds,
   deletingId,
@@ -85,6 +101,8 @@ export function ContactsTable({
   onDelete,
 }: ContactsTableProps) {
   const isAllSelected = contacts.length > 0 && selectedIds.length === contacts.length;
+  const visibleColumns = columns.filter((column) => visibleColumnIds.includes(column.id));
+  const tableColumnCount = visibleColumns.length + 2;
 
   return (
     <Table>
@@ -98,22 +116,18 @@ export function ContactsTable({
               onChange={(event) => onToggleSelectAll(event.target.checked)}
             />
           </TableHead>
-          <TableHead>Name</TableHead>
-          <TableHead>Email</TableHead>
-          <TableHead>Phone</TableHead>
-          <TableHead>Company</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Category</TableHead>
-          <TableHead>Labels</TableHead>
+          {visibleColumns.map((column) => (
+            <TableHead key={column.id}>{column.label}</TableHead>
+          ))}
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {isLoading ? (
-          <LoadingRows />
+          <LoadingRows columnCount={tableColumnCount} />
         ) : contacts.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={9} className="py-14 text-center">
+            <TableCell colSpan={tableColumnCount} className="py-14 text-center">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-zinc-200">No contacts found</p>
                 <p className="text-xs text-zinc-500">
@@ -133,34 +147,82 @@ export function ContactsTable({
                   onChange={(event) => onToggleSelect(contact.id, event.target.checked)}
                 />
               </TableCell>
-              <TableCell>
-                <p className="font-medium text-zinc-100">{getDisplayName(contact)}</p>
-              </TableCell>
-              <TableCell className="text-zinc-300">{contact.email ?? '-'}</TableCell>
-              <TableCell className="text-zinc-300">{contact.phone ?? '-'}</TableCell>
-              <TableCell className="text-zinc-300">{contact.company ?? '-'}</TableCell>
-              <TableCell>
-                <SubscriptionStatusBadge value={contact.subscriptionStatus} />
-              </TableCell>
-              <TableCell>
-                <span className="text-xs text-zinc-300">{contact.category ?? '-'}</span>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {contact.labels.length === 0 ? (
-                    <span className="text-xs text-zinc-500">No labels</span>
-                  ) : (
-                    contact.labels.slice(0, 3).map((label) => (
-                      <span
-                        key={label}
-                        className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-300"
-                      >
-                        {label}
-                      </span>
-                    ))
-                  )}
-                </div>
-              </TableCell>
+              {visibleColumns.map((column) => {
+                if (column.type === 'custom') {
+                  const customValue = column.customFieldKey
+                    ? contact.customFields?.[column.customFieldKey]
+                    : undefined;
+                  return (
+                    <TableCell key={column.id} className="text-zinc-300">
+                      {formatCellValue(customValue)}
+                    </TableCell>
+                  );
+                }
+
+                switch (column.id) {
+                  case 'name':
+                    return (
+                      <TableCell key={column.id}>
+                        <p className="font-medium text-zinc-100">{getDisplayName(contact)}</p>
+                      </TableCell>
+                    );
+                  case 'email':
+                    return (
+                      <TableCell key={column.id} className="text-zinc-300">
+                        {contact.email ?? '-'}
+                      </TableCell>
+                    );
+                  case 'phone':
+                    return (
+                      <TableCell key={column.id} className="text-zinc-300">
+                        {contact.phone ?? '-'}
+                      </TableCell>
+                    );
+                  case 'company':
+                    return (
+                      <TableCell key={column.id} className="text-zinc-300">
+                        {contact.company ?? '-'}
+                      </TableCell>
+                    );
+                  case 'status':
+                    return (
+                      <TableCell key={column.id}>
+                        <SubscriptionStatusBadge value={contact.subscriptionStatus} />
+                      </TableCell>
+                    );
+                  case 'category':
+                    return (
+                      <TableCell key={column.id}>
+                        <span className="text-xs text-zinc-300">{contact.category ?? '-'}</span>
+                      </TableCell>
+                    );
+                  case 'labels':
+                    return (
+                      <TableCell key={column.id}>
+                        <div className="flex flex-wrap gap-1">
+                          {contact.labels.length === 0 ? (
+                            <span className="text-xs text-zinc-500">No labels</span>
+                          ) : (
+                            contact.labels.slice(0, 3).map((label) => (
+                              <span
+                                key={label}
+                                className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-300"
+                              >
+                                {label}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </TableCell>
+                    );
+                  default:
+                    return (
+                      <TableCell key={column.id} className="text-zinc-300">
+                        -
+                      </TableCell>
+                    );
+                }
+              })}
               <TableCell>
                 <div className="flex justify-end gap-2">
                   <Button
