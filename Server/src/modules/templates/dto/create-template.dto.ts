@@ -2,13 +2,21 @@ import { Transform } from 'class-transformer';
 import {
   IsArray,
   IsEnum,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { TemplateCategory, TemplateChannelType, TemplateStatus } from '../constants/template.enums';
+import {
+  TemplateCategory,
+  TemplateChannelType,
+  TemplateEditorType,
+  TemplateLayoutPreset,
+  TemplateStatus,
+  TemplateVisibility,
+} from '../constants/template.enums';
 
 export class CreateTemplateDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
@@ -27,6 +35,18 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsEnum(TemplateStatus)
   readonly status?: TemplateStatus;
+
+  @IsOptional()
+  @IsEnum(TemplateVisibility)
+  readonly visibility?: TemplateVisibility;
+
+  @IsOptional()
+  @IsEnum(TemplateEditorType)
+  readonly editorType?: TemplateEditorType;
+
+  @IsOptional()
+  @IsEnum(TemplateLayoutPreset)
+  readonly layoutPreset?: TemplateLayoutPreset;
 
   @IsOptional()
   @IsArray()
@@ -58,6 +78,17 @@ export class CreateTemplateDto {
   @Transform(({ value }) => (typeof value === 'string' ? value : String(value ?? '')))
   @IsString()
   readonly textBody?: string;
+
+  @ValidateIf((dto: CreateTemplateDto) => dto.channelType === TemplateChannelType.EMAIL)
+  @IsOptional()
+  @IsObject()
+  readonly designJson?: Record<string, unknown> | null;
+
+  @ValidateIf((dto: CreateTemplateDto) => dto.channelType === TemplateChannelType.EMAIL)
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value : String(value ?? '')))
+  @IsString()
+  readonly mjmlBody?: string | null;
 
   @ValidateIf((dto: CreateTemplateDto) => dto.channelType === TemplateChannelType.WHATSAPP)
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

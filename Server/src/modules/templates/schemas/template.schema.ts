@@ -3,10 +3,16 @@ import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 import {
   TEMPLATE_CATEGORY_VALUES,
   TEMPLATE_CHANNEL_VALUES,
+  TEMPLATE_EDITOR_VALUES,
+  TEMPLATE_LAYOUT_PRESET_VALUES,
   TEMPLATE_STATUS_VALUES,
+  TEMPLATE_VISIBILITY_VALUES,
   TemplateCategory,
   TemplateChannelType,
+  TemplateEditorType,
+  TemplateLayoutPreset,
   TemplateStatus,
+  TemplateVisibility,
 } from '../constants/template.enums';
 
 @Schema({ _id: false })
@@ -22,6 +28,12 @@ export class EmailTemplateContent {
 
   @Prop({ default: '' })
   textBody!: string;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  designJson?: Record<string, unknown> | null;
+
+  @Prop({ type: String, default: null })
+  mjmlBody?: string | null;
 }
 
 @Schema({ _id: false })
@@ -58,6 +70,15 @@ export class Template {
 
   @Prop({ type: String, enum: TEMPLATE_STATUS_VALUES, default: TemplateStatus.DRAFT })
   status!: TemplateStatus;
+
+  @Prop({ type: String, enum: TEMPLATE_VISIBILITY_VALUES, default: TemplateVisibility.PERSONAL })
+  visibility!: TemplateVisibility;
+
+  @Prop({ type: String, enum: TEMPLATE_EDITOR_VALUES, default: TemplateEditorType.HTML })
+  editorType!: TemplateEditorType;
+
+  @Prop({ type: String, enum: TEMPLATE_LAYOUT_PRESET_VALUES, default: undefined })
+  layoutPreset?: TemplateLayoutPreset;
 
   @Prop({ type: [String], default: [] })
   variables!: string[];

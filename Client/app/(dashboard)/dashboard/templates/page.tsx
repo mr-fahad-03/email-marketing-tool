@@ -1,37 +1,42 @@
 'use client';
 
-import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Code2, LayoutTemplate } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { TemplateFormDialog } from '@/components/templates/template-form-dialog';
+import { TemplateLibraryGrid } from '@/components/templates/template-library-grid';
 import { TemplatesFilters } from '@/components/templates/templates-filters';
-import { TemplatePreviewDialog } from '@/components/templates/template-preview-dialog';
 import { TemplatesTable } from '@/components/templates/templates-table';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { HttpClientError } from '@/lib/api/errors';
 import {
-  createTemplate,
-  deleteTemplate,
+  getMjmlProviderStatus,
+  getMjmlProviderTemplates,
   getTemplates,
-  previewTemplate,
-  updateTemplate,
 } from '@/lib/api/templates';
+import type { TemplateLibraryItem } from '@/lib/constants/email-template-library';
+import {
+  getTemplateCategoryLabel,
+} from '@/lib/constants/template-categories';
 import type {
   MarketingTemplate,
-  TemplatePreviewResult,
-  TemplateType,
-  TemplatesPagination,
+  ProviderStatus,
+  TemplateLayoutPreset,
 } from '@/lib/types/template';
-import type { TemplateFormValues } from '@/lib/validators/template';
-import type { TemplateTypeTabValue } from '@/components/templates/template-type-tabs';
 
-const DEFAULT_PAGINATION: TemplatesPagination = {
-  page: 1,
-  limit: 10,
-  total: 0,
-  totalPages: 1,
-};
+type TemplatesSection = 'all' | 'personal' | 'library';
+type PrebuiltLayoutPreset = Exclude<TemplateLayoutPreset, 'empty'>;
+
+const PREBUILT_LAYOUT_OPTIONS: Array<{
+  id: PrebuiltLayoutPreset;
+  title: string;
+}> = [
+  { id: 'basic', title: 'Basic' },
+  { id: 'commerce', title: 'Commerce' },
+  { id: 'three-columns', title: 'Three columns' },
+  { id: 'news', title: 'News' },
+  { id: 'text', title: 'Text' },
+];
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof HttpClientError) {
@@ -45,23 +50,123 @@ function getErrorMessage(error: unknown): string {
   return 'Something went wrong. Please try again.';
 }
 
-export default function TemplatesPage() {
-  const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
-  const [pagination, setPagination] = useState<TemplatesPagination>(DEFAULT_PAGINATION);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+function inferCategoryFromProviderTemplate(item: {
+  categoryHints: string[];
+}): NonNullable<MarketingTemplate['category']> {
+  const first = item.categoryHints[0]?.trim().toLowerCase();
+  if (first) {
+    return first as NonNullable<MarketingTemplate['category']>;
+  }
 
-  const [activeType, setActiveType] = useState<TemplateTypeTabValue>('all');
+  return 'general';
+}
+
+function LayoutPresetThumbnail({ preset }: { preset: PrebuiltLayoutPreset }) {
+  const base =
+    'h-[104px] rounded-md border border-[#cfd4d8] bg-[#f4f5f6] p-3';
+  const lineStrong = 'rounded bg-[#c1c8ce]';
+  const lineSoft = 'rounded bg-[#d5d9dd]';
+  const blockBlue = 'rounded bg-[#a8c2d0]';
+
+  if (preset === 'basic') {
+    return (
+      <div className={base}>
+        <div className={`mb-3 h-8 ${blockBlue}`} />
+        <div className={`mb-1.5 h-1.5 w-[92%] ${lineStrong}`} />
+        <div className={`mb-1.5 h-1.5 w-[82%] ${lineSoft}`} />
+        <div className={`mb-1.5 h-1.5 w-[88%] ${lineSoft}`} />
+        <div className={`mb-1.5 h-1.5 w-[84%] ${lineSoft}`} />
+        <div className={`mb-1.5 h-1.5 w-[72%] ${lineSoft}`} />
+        <div className={`mt-2 h-3 w-9 ${lineStrong}`} />
+      </div>
+    );
+  }
+
+  if (preset === 'commerce') {
+    return (
+      <div className={base}>
+        <div className={`mb-2 h-1.5 w-4/5 ${lineStrong}`} />
+        <div className="grid grid-cols-3 gap-1.5">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <div key={idx} className="space-y-1">
+              <div className={`h-4 ${blockBlue}`} />
+              <div className={`h-1.5 ${lineStrong}`} />
+              <div className={`h-1.5 w-4/5 ${lineSoft}`} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (preset === 'three-columns') {
+    return (
+      <div className={base}>
+        <div className={`mb-2 h-1.5 w-4/5 ${lineStrong}`} />
+        <div className="grid grid-cols-3 gap-1.5">
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <div key={idx} className="space-y-1">
+              <div className={`h-4 ${blockBlue}`} />
+              <div className={`h-4 ${blockBlue}`} />
+              <div className={`h-1.5 ${lineStrong}`} />
+              <div className={`h-1.5 w-4/5 ${lineSoft}`} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (preset === 'news') {
+    return (
+      <div className={base}>
+        <div className={`mb-2 h-1.5 w-4/5 ${lineStrong}`} />
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <div>
+            <div className={`mb-1.5 h-1.5 w-[95%] ${lineSoft}`} />
+            <div className={`mb-1.5 h-1.5 w-[88%] ${lineSoft}`} />
+            <div className={`mb-1.5 h-1.5 w-[90%] ${lineSoft}`} />
+            <div className={`mb-1.5 h-1.5 w-[84%] ${lineSoft}`} />
+            <div className={`mb-1.5 h-1.5 w-[78%] ${lineSoft}`} />
+          </div>
+          <div className="space-y-2">
+            <div className={`h-8 w-7 ${blockBlue}`} />
+            <div className={`h-8 w-7 ${blockBlue}`} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={base}>
+      <div className={`mb-2 h-1.5 w-4/5 ${lineStrong}`} />
+      <div className="space-y-1">
+        {Array.from({ length: 9 }).map((_, idx) => (
+          <div key={idx} className={`h-1.5 ${idx % 3 === 2 ? 'w-5/6' : 'w-full'} ${lineSoft}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function TemplatesPage() {
+  const router = useRouter();
+  const [activeSection, setActiveSection] = useState<TemplatesSection>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeLibraryCategory, setActiveLibraryCategory] = useState('all');
 
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<MarketingTemplate | null>(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [previewingTemplate, setPreviewingTemplate] = useState<MarketingTemplate | null>(null);
-  const [previewResult, setPreviewResult] = useState<TemplatePreviewResult | null>(null);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [showLayoutPicker, setShowLayoutPicker] = useState(false);
+
+  const [allTemplates, setAllTemplates] = useState<MarketingTemplate[]>([]);
+  const [isAllTemplatesLoading, setIsAllTemplatesLoading] = useState(false);
+
+  const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
+  const [providerTemplates, setProviderTemplates] = useState<TemplateLibraryItem[]>([]);
+  const [libraryCategoryOptions, setLibraryCategoryOptions] = useState<string[]>([]);
+  const [isProviderLoading, setIsProviderLoading] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -72,225 +177,395 @@ export default function TemplatesPage() {
   }, [search]);
 
   useEffect(() => {
-    setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [activeType, debouncedSearch]);
+    let cancelled = false;
 
-  const loadTemplates = useCallback(async () => {
-    setIsLoading(true);
+    async function loadSavedTemplates() {
+      setIsAllTemplatesLoading(true);
+      try {
+        const response = await getTemplates({
+          page: 1,
+          limit: 100,
+          search: debouncedSearch || undefined,
+        });
 
-    try {
-      const response = await getTemplates({
-        page: pagination.page,
-        limit: pagination.limit,
-        search: debouncedSearch || undefined,
-        type: activeType === 'all' ? undefined : activeType,
-      });
-
-      setTemplates(response.items);
-      setPagination(response.pagination);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setIsLoading(false);
+        if (!cancelled) {
+          setAllTemplates(response.items);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setAllTemplates([]);
+          toast.error(getErrorMessage(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsAllTemplatesLoading(false);
+        }
+      }
     }
-  }, [activeType, debouncedSearch, pagination.limit, pagination.page]);
+
+    void loadSavedTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch]);
 
   useEffect(() => {
-    void loadTemplates();
-  }, [loadTemplates]);
+    let cancelled = false;
 
-  const visibleTemplates = useMemo(() => {
-    return templates.filter((template) => {
-      const matchesType = activeType === 'all' || template.type === activeType;
-      const matchesSearch =
-        !debouncedSearch ||
-        template.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        template.subject.toLowerCase().includes(debouncedSearch.toLowerCase());
-
-      return matchesType && matchesSearch;
-    });
-  }, [activeType, debouncedSearch, templates]);
-
-  const openCreate = () => {
-    setEditingTemplate(null);
-    setIsFormOpen(true);
-  };
-
-  const openEdit = (template: MarketingTemplate) => {
-    setEditingTemplate(template);
-    setIsFormOpen(true);
-  };
-
-  const closeForm = (open: boolean) => {
-    setIsFormOpen(open);
-    if (!open) {
-      setEditingTemplate(null);
-    }
-  };
-
-  const openPreview = async (template: MarketingTemplate) => {
-    setPreviewingTemplate(template);
-    setPreviewResult(null);
-    setIsPreviewOpen(true);
-
-    setIsPreviewLoading(true);
-
-    try {
-      const result = await previewTemplate(template.id);
-      setPreviewResult(result);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  };
-
-  const closePreview = (open: boolean) => {
-    setIsPreviewOpen(open);
-    if (!open) {
-      setPreviewingTemplate(null);
-      setPreviewResult(null);
-      setIsPreviewLoading(false);
-    }
-  };
-
-  const handleSave = async (values: TemplateFormValues) => {
-    setIsSaving(true);
-
-    try {
-      if (editingTemplate) {
-        await updateTemplate(editingTemplate.id, values);
-        toast.success('Template updated.');
-      } else {
-        await createTemplate(values);
-        toast.success('Template created.');
+    async function loadProviderStatus() {
+      try {
+        const status = await getMjmlProviderStatus();
+        if (!cancelled) {
+          setProviderStatus(status);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setProviderStatus({
+            provider: 'mjml',
+            enabled: false,
+            configured: false,
+            renderMode: 'hybrid',
+            apiReachable: null,
+            fallbackToLocal: false,
+            message: getErrorMessage(error),
+          });
+        }
       }
-
-      closeForm(false);
-      await loadTemplates();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-      throw error;
-    } finally {
-      setIsSaving(false);
     }
-  };
 
-  const handleDelete = async (template: MarketingTemplate) => {
-    const confirmed = window.confirm(`Delete "${template.name}" template?`);
-    if (!confirmed) {
+    void loadProviderStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!providerStatus?.configured) {
+      setProviderTemplates([]);
+      setLibraryCategoryOptions([]);
       return;
     }
 
-    setDeletingId(template.id);
+    let cancelled = false;
 
-    try {
-      await deleteTemplate(template.id);
-      toast.success('Template deleted.');
-      await loadTemplates();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setDeletingId(null);
+    async function loadProviderTemplates() {
+      setIsProviderLoading(true);
+      setProviderError(null);
+
+      try {
+        const limit = 50;
+        let page = 0;
+        let total = 0;
+        const allItems: Array<{
+          templateId: string;
+          name: string;
+          thumbnail: string;
+          categoryHints: string[];
+        }> = [];
+
+        while (true) {
+          const response = await getMjmlProviderTemplates({
+            category: activeLibraryCategory === 'all' ? undefined : activeLibraryCategory,
+            search: debouncedSearch || undefined,
+            limit,
+            page,
+          });
+
+          total = response.total;
+          allItems.push(...response.items);
+
+          if (response.items.length === 0 || allItems.length >= total) {
+            break;
+          }
+
+          page += 1;
+          if (page > 50) {
+            break;
+          }
+        }
+
+        const mappedItems: TemplateLibraryItem[] = allItems.map((item) => {
+          const category = inferCategoryFromProviderTemplate(item);
+          return {
+            id: `mjml-${item.templateId}`,
+            source: 'provider',
+            provider: 'mjml',
+            providerTemplateId: item.templateId,
+            name: item.name,
+            category,
+            subject: item.name,
+            body: '',
+            summary: `Official MJML template - ${item.categoryHints.join(', ') || 'general'}`,
+            previewImageUrl: item.thumbnail || undefined,
+            editorType: 'layout',
+            layoutPreset: null,
+            designJson: null,
+          };
+        });
+
+        const discoveredCategories = Array.from(
+          new Set(
+            mappedItems
+              .map((item) => item.category)
+              .filter(
+                (
+                  category,
+                ): category is NonNullable<MarketingTemplate['category']> => Boolean(category),
+              ),
+          ),
+        );
+
+        if (!cancelled) {
+          setProviderTemplates(mappedItems);
+          setLibraryCategoryOptions((previous) => {
+            if (activeLibraryCategory === 'all' || previous.length === 0) {
+              return discoveredCategories;
+            }
+
+            const merged = [...previous];
+            for (const category of discoveredCategories) {
+              if (!merged.includes(category)) {
+                merged.push(category);
+              }
+            }
+            return merged;
+          });
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setProviderTemplates([]);
+          setLibraryCategoryOptions([]);
+          setProviderError(getErrorMessage(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsProviderLoading(false);
+        }
+      }
     }
+
+    void loadProviderTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeLibraryCategory, debouncedSearch, providerStatus?.configured]);
+
+  const libraryCategories = useMemo(
+    () => ['all', ...libraryCategoryOptions],
+    [libraryCategoryOptions],
+  );
+
+  const goToPreviewPage = (item: TemplateLibraryItem) => {
+    if (!item.providerTemplateId) {
+      return;
+    }
+
+    router.push(`/dashboard/templates/library/${encodeURIComponent(item.providerTemplateId)}/preview`);
   };
 
-  const goToPreviousPage = () => {
-    setPagination((prev) => ({
-      ...prev,
-      page: Math.max(1, prev.page - 1),
-    }));
+  const openHtmlPersonalCreatorPage = () => {
+    router.push('/dashboard/templates/new?editor=html');
   };
 
-  const goToNextPage = () => {
-    setPagination((prev) => ({
-      ...prev,
-      page: Math.min(prev.totalPages || 1, prev.page + 1),
-    }));
+  const openLayoutPersonalCreatorPage = (preset: PrebuiltLayoutPreset) => {
+    router.push(`/dashboard/templates/new?editor=layout&preset=${encodeURIComponent(preset)}`);
   };
 
-  const dialogDefaultType: TemplateType =
-    activeType === 'all' ? 'email' : activeType;
+  const openTemplateDetailsPage = (template: MarketingTemplate) => {
+    router.push(`/dashboard/templates/${encodeURIComponent(template.id)}`);
+  };
 
   return (
     <section className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-zinc-100">Templates</h2>
-          <p className="text-sm text-zinc-400">
-            Build and manage reusable email and WhatsApp templates.
-          </p>
-        </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Template
-        </Button>
+      <div>
+        <h2 className="text-xl font-semibold text-zinc-100">Templates</h2>
+        <p className="text-sm text-zinc-400">Create personal templates or browse the professional library.</p>
       </div>
 
-      <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
-        <CardHeader className="space-y-4">
-          <CardTitle className="text-base">Template Library</CardTitle>
-          <TemplatesFilters
-            search={search}
-            type={activeType}
-            onSearchChange={setSearch}
-            onTypeChange={setActiveType}
-          />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <TemplatesTable
-            templates={visibleTemplates}
-            isLoading={isLoading}
-            deletingId={deletingId}
-            onPreview={openPreview}
-            onEdit={openEdit}
-            onDelete={handleDelete}
-          />
+      <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-900 p-1">
+        <button
+          type="button"
+          className={`rounded px-3 py-1.5 text-sm ${
+            activeSection === 'all'
+              ? 'bg-zinc-100 text-zinc-900'
+              : 'text-zinc-300 hover:bg-zinc-800'
+          }`}
+          onClick={() => setActiveSection('all')}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          className={`rounded px-3 py-1.5 text-sm ${
+            activeSection === 'personal'
+              ? 'bg-zinc-100 text-zinc-900'
+              : 'text-zinc-300 hover:bg-zinc-800'
+          }`}
+          onClick={() => setActiveSection('personal')}
+        >
+          Personal
+        </button>
+        <button
+          type="button"
+          className={`rounded px-3 py-1.5 text-sm ${
+            activeSection === 'library'
+              ? 'bg-zinc-100 text-zinc-900'
+              : 'text-zinc-300 hover:bg-zinc-800'
+          }`}
+          onClick={() => setActiveSection('library')}
+        >
+          Template Library
+        </button>
+      </div>
 
-          <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-zinc-500">
-              Page {pagination.page} of {pagination.totalPages} | {pagination.total} total templates
-            </p>
-            <div className="flex gap-2">
-              <Button
+      {activeSection === 'all' ? (
+        <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
+          <CardHeader className="space-y-4">
+            <CardTitle className="text-base">All Templates</CardTitle>
+            <TemplatesFilters
+              search={search}
+              type="all"
+              showTypeTabs={false}
+              onSearchChange={setSearch}
+              onTypeChange={() => {}}
+            />
+          </CardHeader>
+          <CardContent>
+            <TemplatesTable
+              templates={allTemplates}
+              isLoading={isAllTemplatesLoading}
+              onCardClick={openTemplateDetailsPage}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeSection === 'personal' ? (
+        <Card className="border-slate-200 bg-white text-slate-900">
+          <CardHeader>
+            <CardTitle className="text-base">Personal</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2">
+              <button
                 type="button"
-                variant="outline"
-                className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-                onClick={goToPreviousPage}
-                disabled={pagination.page <= 1 || isLoading}
+                className="rounded-xl border border-teal-300 bg-teal-50 p-6 text-left transition hover:border-teal-400 hover:bg-teal-50"
+                onClick={() => setShowLayoutPicker((current) => !current)}
               >
-                Previous
-              </Button>
-              <Button
+                <LayoutTemplate className="mb-4 h-8 w-8 text-teal-600" />
+                <p className="text-lg font-semibold text-slate-900">Layout Template Editor</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  Choose from pre-built layout templates, then start editing visually.
+                </p>
+              </button>
+              <button
                 type="button"
-                variant="outline"
-                className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-                onClick={goToNextPage}
-                disabled={pagination.page >= pagination.totalPages || isLoading}
+                className="rounded-xl border border-sky-300 bg-sky-50 p-6 text-left transition hover:border-sky-400 hover:bg-sky-50"
+                onClick={openHtmlPersonalCreatorPage}
               >
-                Next
-              </Button>
+                <Code2 className="mb-4 h-8 w-8 text-sky-600" />
+                <p className="text-lg font-semibold text-slate-900">HTML Editor</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  Create your personal template directly with HTML markup.
+                </p>
+              </button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            {showLayoutPicker ? (
+              <div className="mt-6 rounded-lg bg-[#4d5a5e] p-6">
+                <div className="grid justify-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {PREBUILT_LAYOUT_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className="w-full rounded-lg border border-[#d9dcdf] bg-[#f4f5f6] p-3 text-left shadow-[0_1px_0_rgba(0,0,0,0.04)] transition hover:bg-white sm:max-w-[165px]"
+                      onClick={() => openLayoutPersonalCreatorPage(option.id)}
+                    >
+                      <LayoutPresetThumbnail preset={option.id} />
+                      <p className="mt-3 text-center text-[13px] leading-[1.2] font-normal text-[#00a0d3]">
+                        {option.title}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
-      <TemplateFormDialog
-        open={isFormOpen}
-        onOpenChange={closeForm}
-        template={editingTemplate}
-        defaultType={dialogDefaultType}
-        isSubmitting={isSaving}
-        onSubmit={handleSave}
-      />
+      {activeSection === 'library' ? (
+        <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
+          <CardHeader className="space-y-4">
+            <CardTitle className="text-base">Template Library</CardTitle>
 
-      <TemplatePreviewDialog
-        open={isPreviewOpen}
-        onOpenChange={closePreview}
-        template={previewingTemplate}
-        preview={previewResult}
-        isLoading={isPreviewLoading}
-      />
+            <TemplatesFilters
+              search={search}
+              type="all"
+              showTypeTabs={false}
+              onSearchChange={setSearch}
+              onTypeChange={() => {}}
+            />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-3 text-xs text-zinc-300">
+              <p className="mb-2">
+                Templates are fetched from a professional provider API and displayed directly in this app.
+              </p>
+              {providerStatus ? (
+                <span
+                  className={
+                    providerStatus.configured
+                      ? 'rounded-md border border-emerald-700/40 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-200'
+                      : 'rounded-md border border-amber-700/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200'
+                  }
+                >
+                  {providerStatus.message}
+                </span>
+              ) : null}
+              {!providerStatus?.configured ? (
+                <p className="mt-2 text-[11px] text-zinc-400">
+                  Configure `MJML_PROVIDER_ENABLED=true` on backend.
+                </p>
+              ) : null}
+              {providerError ? (
+                <p className="mt-2 text-[11px] text-rose-300">Provider error: {providerError}</p>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {libraryCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={`rounded-md border px-3 py-1.5 text-sm ${
+                    activeLibraryCategory === category
+                      ? 'border-zinc-100 bg-zinc-100 text-zinc-900'
+                      : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
+                  }`}
+                  onClick={() => setActiveLibraryCategory(category)}
+                >
+                  {category === 'all' ? 'All' : getTemplateCategoryLabel(category)}
+                </button>
+              ))}
+            </div>
+
+            {isProviderLoading ? (
+              <div className="text-xs text-zinc-400">Loading provider templates...</div>
+            ) : null}
+            <TemplateLibraryGrid
+              items={providerTemplates}
+              onPreviewTemplate={goToPreviewPage}
+            />
+
+            <div className="text-xs text-zinc-500">
+              All provider-fetched templates are shown in this library tab.
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </section>
   );
 }

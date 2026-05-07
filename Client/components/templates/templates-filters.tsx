@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 interface TemplatesFiltersProps {
   search: string;
   type: TemplateTypeTabValue;
+  showTypeTabs?: boolean;
   onSearchChange: (value: string) => void;
   onTypeChange: (value: TemplateTypeTabValue) => void;
 }
@@ -12,12 +13,13 @@ interface TemplatesFiltersProps {
 export function TemplatesFilters({
   search,
   type,
+  showTypeTabs = true,
   onSearchChange,
   onTypeChange,
 }: TemplatesFiltersProps) {
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <TemplateTypeTabs value={type} onChange={onTypeChange} />
+      {showTypeTabs ? <TemplateTypeTabs value={type} onChange={onTypeChange} /> : <div />}
       <div className="relative w-full lg:max-w-md">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
         <Input

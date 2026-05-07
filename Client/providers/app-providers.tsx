@@ -11,10 +11,16 @@ interface AppProvidersProps {
 
 export function AppProviders({ children }: AppProvidersProps) {
   const initialize = useAuthStore((state) => state.initialize);
+  const hydrated = useAuthStore((state) => state.hydrated);
+  const token = useAuthStore((state) => state.token);
 
   useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
+
     void initialize();
-  }, [initialize]);
+  }, [hydrated, token, initialize]);
 
   useEffect(() => {
     const onUnhandledRejection = () => {

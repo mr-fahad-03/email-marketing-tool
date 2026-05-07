@@ -98,6 +98,14 @@ function toggleId(ids: string[], id: string, checked: boolean): string[] {
   return ids.filter((item) => item !== id);
 }
 
+function toPreviewDocument(html: string): string {
+  if (/<html[\s>]/i.test(html)) {
+    return html;
+  }
+
+  return `<!doctype html><html><head><meta charset="utf-8" /><style>body{margin:0;padding:0;}</style></head><body>${html}</body></html>`;
+}
+
 function formatCampaignTimestamp(timestamp?: string): string {
   if (!timestamp) {
     return 'Recently updated';
@@ -132,7 +140,7 @@ function buildRerunDefaults(campaign: Campaign): CampaignBuilderFormValues {
   return {
     name: `${campaign.name} (rerun)`,
     description: '',
-    channel: campaign.channel,
+    channel: 'email',
     targetMode: campaign.segmentId ? 'segment' : 'contacts',
     segmentId: campaign.segmentId ?? '',
     contactIds: campaign.segmentId ? [] : campaign.contactIds,
@@ -297,6 +305,14 @@ export function CampaignBuilder() {
   useEffect(() => {
     void loadOptions(watchedChannel);
   }, [loadOptions, watchedChannel]);
+
+  useEffect(() => {
+    if (watchedChannel !== 'email') {
+      form.setValue('channel', 'email', { shouldDirty: true });
+      form.setValue('senderAccountIds', [], { shouldDirty: true });
+      form.setValue('templateId', '', { shouldDirty: true });
+    }
+  }, [form, watchedChannel]);
 
   const loadRecentCampaigns = useCallback(async () => {
     setIsLoadingRecentCampaigns(true);
@@ -532,30 +548,21 @@ export function CampaignBuilder() {
       return (
         <div className="space-y-4">
           <p className="text-sm text-zinc-400">Choose which channel this campaign should use.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(['email', 'whatsapp'] as const).map((channel) => (
-              <button
-                key={channel}
-                type="button"
-                className={`rounded-lg border p-4 text-left transition-colors ${
-                  watchedChannel === channel
-                    ? 'border-zinc-300 bg-zinc-100 text-zinc-900'
-                    : 'border-zinc-800 bg-zinc-900 text-zinc-200 hover:bg-zinc-800'
-                }`}
-                onClick={() => {
-                  form.setValue('channel', channel, { shouldDirty: true });
-                  form.setValue('senderAccountIds', [], { shouldDirty: true });
-                  form.setValue('templateId', '', { shouldDirty: true });
-                }}
-              >
-                <p className="font-medium capitalize">{channel}</p>
-                <p className="mt-1 text-xs opacity-80">
-                  {channel === 'email'
-                    ? 'Use email sender accounts and email templates.'
-                    : 'Use WhatsApp sender accounts and approved templates.'}
-                </p>
-              </button>
-            ))}
+          <div className="grid gap-3 sm:grid-cols-1">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-300 bg-zinc-100 p-4 text-left text-zinc-900"
+              onClick={() => {
+                form.setValue('channel', 'email', { shouldDirty: true });
+                form.setValue('senderAccountIds', [], { shouldDirty: true });
+                form.setValue('templateId', '', { shouldDirty: true });
+              }}
+            >
+              <p className="font-medium">Email</p>
+              <p className="mt-1 text-xs opacity-80">
+                Use email sender accounts and email templates.
+              </p>
+            </button>
           </div>
         </div>
       );
@@ -717,24 +724,63 @@ export function CampaignBuilder() {
           ) : templates.length === 0 ? (
             <p className="text-sm text-zinc-500">No templates found for this channel.</p>
           ) : (
-            <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border border-zinc-800 p-2">
+            <div className="max-h-[32rem] overflow-y-auto rounded-md border border-zinc-800 p-2">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {templates.map((template) => (
-                <label
+                <button
                   key={template.id}
-                  className="flex cursor-pointer items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2"
+                  type="button"
+                  className={`overflow-hidden rounded-xl border p-3 text-left transition ${
+                    watchedTemplateId === template.id
+                      ? 'border-emerald-400 bg-zinc-800 ring-1 ring-emerald-400/40'
+                      : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700'
+                  }`}
+                  onClick={() =>
+                    form.setValue('templateId', template.id, {
+                      shouldDirty: true,
+                      shouldTouch: true,
+                      shouldValidate: true,
+                    })
+                  }
                 >
-                  <div>
-                    <p className="text-sm font-medium text-zinc-100">{template.name}</p>
-                    <p className="line-clamp-1 text-xs text-zinc-500">{template.subject}</p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="line-clamp-1 text-xs font-medium text-zinc-200">{template.name}</p>
+                    <span
+                      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${
+                        watchedTemplateId === template.id
+                          ? 'border-emerald-400 bg-emerald-400/20'
+                          : 'border-zinc-500 bg-transparent'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full ${
+                          watchedTemplateId === template.id ? 'bg-emerald-400' : 'bg-transparent'
+                        }`}
+                      />
+                    </span>
+                  </div>
+                  <div className="h-56 overflow-hidden rounded-md border border-zinc-800 bg-white">
+                    <div className="h-[200%] w-[200%] origin-top-left scale-50">
+                      <iframe
+                        title={`${template.name} preview`}
+                        className="h-full w-full pointer-events-none"
+                        sandbox=""
+                        srcDoc={toPreviewDocument(template.body)}
+                      />
+                    </div>
                   </div>
                   <input
                     type="radio"
-                    className="h-4 w-4"
+                    name="campaign-template"
+                    className="sr-only"
                     checked={watchedTemplateId === template.id}
-                    onChange={() => form.setValue('templateId', template.id, { shouldDirty: true })}
+                    readOnly
+                    aria-label={`Select template ${template.name}`}
                   />
-                </label>
+                </button>
               ))}
+              </div>
             </div>
           )}
           <FieldError message={form.formState.errors.templateId?.message} />

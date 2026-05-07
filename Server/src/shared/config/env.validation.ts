@@ -42,4 +42,15 @@ export const envValidationSchema = Joi.object({
     .default(60 * 60 * 24 * 30),
   TRACKING_TOKEN_SECRET: Joi.string().min(32).required(),
   SENDER_SECRETS_KEY: Joi.string().min(32).required(),
+  MJML_PROVIDER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  MJML_API_BASE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('https://api.mjml.io/v1'),
+  MJML_API_APP_ID: Joi.string().allow('').optional(),
+  MJML_API_SECRET_KEY: Joi.string().allow('').optional(),
+  MJML_RENDER_MODE: Joi.string().valid('hybrid', 'api_only', 'local_only').default('hybrid'),
+  MJML_TEMPLATE_REPO_OWNER: Joi.string().default('mjmlio'),
+  MJML_TEMPLATE_REPO_NAME: Joi.string().default('email-templates'),
+  MJML_TEMPLATE_REPO_BRANCH: Joi.string().default('master'),
+  GITHUB_TOKEN: Joi.string().allow('').optional(),
 });

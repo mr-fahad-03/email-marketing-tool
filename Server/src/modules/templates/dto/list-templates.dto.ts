@@ -1,6 +1,12 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { TemplateCategory, TemplateChannelType, TemplateStatus } from '../constants/template.enums';
+import {
+  TemplateCategory,
+  TemplateChannelType,
+  TemplateEditorType,
+  TemplateStatus,
+  TemplateVisibility,
+} from '../constants/template.enums';
 
 export class ListTemplatesDto {
   @IsOptional()
@@ -27,6 +33,14 @@ export class ListTemplatesDto {
   @IsOptional()
   @IsEnum(TemplateStatus)
   readonly status?: TemplateStatus;
+
+  @IsOptional()
+  @IsEnum(TemplateVisibility)
+  readonly visibility?: TemplateVisibility;
+
+  @IsOptional()
+  @IsEnum(TemplateEditorType)
+  readonly editorType?: TemplateEditorType;
 
   @IsOptional()
   @IsString()

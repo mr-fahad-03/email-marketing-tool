@@ -14,11 +14,17 @@ import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateTemplateDto } from './dto/create-template.dto';
+import { ListProviderTemplatesDto } from './dto/list-provider-templates.dto';
 import { ListTemplatesDto } from './dto/list-templates.dto';
 import { PreviewTemplateDto } from './dto/preview-template.dto';
+import { RenderMjmlDto } from './dto/render-mjml.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 import { TemplatesService } from './templates.service';
 import {
+  MjmlProviderStatusResponse,
+  MjmlRenderResponse,
+  ProviderTemplateDetailResponse,
+  ProviderTemplateListResponse,
   TemplateListResponse,
   TemplatePreviewResponse,
   TemplateResponse,
@@ -43,6 +49,32 @@ export class TemplatesController {
     @CurrentUser() authUser: AuthUser,
   ): Promise<TemplateListResponse> {
     return this.templatesService.findAll(query, authUser);
+  }
+
+  @Get('library/providers/mjml/status')
+  getMjmlProviderStatus(): MjmlProviderStatusResponse {
+    return this.templatesService.getMjmlProviderStatus();
+  }
+
+  @Get('library/providers/mjml/templates')
+  listMjmlTemplates(
+    @Query() query: ListProviderTemplatesDto,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<ProviderTemplateListResponse> {
+    return this.templatesService.listMjmlTemplates(query, authUser);
+  }
+
+  @Get('library/providers/mjml/templates/:templateId')
+  getMjmlTemplateById(
+    @Param('templateId') templateId: string,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<ProviderTemplateDetailResponse> {
+    return this.templatesService.getMjmlTemplateById(templateId, authUser);
+  }
+
+  @Post('library/providers/mjml/render')
+  renderMjml(@Body() dto: RenderMjmlDto): Promise<MjmlRenderResponse> {
+    return this.templatesService.renderMjml(dto.mjml);
   }
 
   @Get(':id')

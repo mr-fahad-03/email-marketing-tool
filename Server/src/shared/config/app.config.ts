@@ -80,6 +80,20 @@ export const securityConfig = registerAs('security', () => ({
   trackingTokenSecret: process.env.TRACKING_TOKEN_SECRET,
 }));
 
+export const templateProvidersConfig = registerAs('templateProviders', () => ({
+  mjml: {
+    enabled: (process.env.MJML_PROVIDER_ENABLED ?? 'true') === 'true',
+    apiBaseUrl: process.env.MJML_API_BASE_URL ?? 'https://api.mjml.io/v1',
+    appId: process.env.MJML_API_APP_ID ?? '',
+    secretKey: process.env.MJML_API_SECRET_KEY ?? '',
+    renderMode: process.env.MJML_RENDER_MODE ?? 'hybrid',
+    repoOwner: process.env.MJML_TEMPLATE_REPO_OWNER ?? 'mjmlio',
+    repoName: process.env.MJML_TEMPLATE_REPO_NAME ?? 'email-templates',
+    repoBranch: process.env.MJML_TEMPLATE_REPO_BRANCH ?? 'master',
+    githubToken: process.env.GITHUB_TOKEN ?? '',
+  },
+}));
+
 export const configuration = [
   appConfig,
   mongoConfig,
@@ -89,4 +103,5 @@ export const configuration = [
   trackingConfig,
   webhookConfig,
   securityConfig,
+  templateProvidersConfig,
 ];

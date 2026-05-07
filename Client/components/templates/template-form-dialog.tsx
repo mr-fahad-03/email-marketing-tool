@@ -3,8 +3,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { EmailTemplateBuilder } from '@/components/templates/email-template-builder';
-import { TemplatePreviewPanel } from '@/components/templates/template-preview-panel';
+import { EmailTemplateHtmlEditor } from '@/components/templates/email-template-html-editor';
+import { LayoutTemplateEditor } from '@/components/templates/layout-template-editor';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,7 +16,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { MarketingTemplate, TemplateType } from '@/lib/types/template';
+import type {
+  MarketingTemplate,
+  TemplateEditorType,
+  TemplateLayoutPreset,
+  TemplateType,
+} from '@/lib/types/template';
 import { templateFormSchema, type TemplateFormValues } from '@/lib/validators/template';
 
 interface TemplateFormDialogProps {
@@ -24,6 +29,16 @@ interface TemplateFormDialogProps {
   onOpenChange: (open: boolean) => void;
   template?: MarketingTemplate | null;
   defaultType: TemplateType;
+  creationPreset?: {
+    editorType: TemplateEditorType;
+    layoutPreset: TemplateLayoutPreset | null;
+    designJson?: MarketingTemplate['designJson'];
+    mjmlBody?: string | null;
+    category?: MarketingTemplate['category'];
+    name?: string;
+    subject?: string;
+    body?: string;
+  } | null;
   isSubmitting?: boolean;
   onSubmit: (values: TemplateFormValues) => Promise<void>;
 }
@@ -31,12 +46,18 @@ interface TemplateFormDialogProps {
 function getDefaultValues(
   template: MarketingTemplate | null | undefined,
   defaultType: TemplateType,
+  creationPreset?: TemplateFormDialogProps['creationPreset'],
 ): TemplateFormValues {
   return {
     type: template?.type ?? defaultType,
-    name: template?.name ?? '',
-    subject: template?.subject ?? '',
-    body: template?.body ?? '',
+    editorType: template?.editorType ?? creationPreset?.editorType ?? 'html',
+    layoutPreset: template?.layoutPreset ?? creationPreset?.layoutPreset ?? null,
+    designJson: template?.designJson ?? creationPreset?.designJson ?? null,
+    mjmlBody: template?.mjmlBody ?? creationPreset?.mjmlBody ?? null,
+    category: template?.category ?? creationPreset?.category ?? 'general',
+    name: template?.name ?? creationPreset?.name ?? '',
+    subject: template?.subject ?? creationPreset?.subject ?? '',
+    body: template?.body ?? creationPreset?.body ?? '',
     status: template?.status ?? 'active',
   };
 }
@@ -54,6 +75,7 @@ export function TemplateFormDialog({
   onOpenChange,
   template,
   defaultType,
+  creationPreset,
   isSubmitting = false,
   onSubmit,
 }: TemplateFormDialogProps) {
@@ -61,27 +83,42 @@ export function TemplateFormDialog({
 
   const form = useForm<TemplateFormValues>({
     resolver: zodResolver(templateFormSchema) as never,
-    defaultValues: getDefaultValues(template, defaultType),
+    defaultValues: getDefaultValues(template, defaultType, creationPreset),
   });
 
   useEffect(() => {
-    form.reset(getDefaultValues(template, defaultType));
-  }, [defaultType, form, open, template]);
+    form.register('designJson');
+    form.register('mjmlBody');
+  }, [form]);
+
+  useEffect(() => {
+    form.reset(getDefaultValues(template, defaultType, creationPreset));
+  }, [creationPreset, defaultType, form, open, template]);
 
   const watchedType = useWatch({
     control: form.control,
     name: 'type',
   }) ?? defaultType;
 
-  const watchedSubject = useWatch({
+  const watchedEditorType = useWatch({
     control: form.control,
-    name: 'subject',
-  }) ?? '';
+    name: 'editorType',
+  }) ?? 'html';
 
-  const watchedBody = useWatch({
+  const watchedLayoutPreset = useWatch({
     control: form.control,
-    name: 'body',
-  }) ?? '';
+    name: 'layoutPreset',
+  });
+
+  const watchedDesignJson = useWatch({
+    control: form.control,
+    name: 'designJson',
+  });
+
+  const watchedMjmlBody = useWatch({
+    control: form.control,
+    name: 'mjmlBody',
+  }) ?? null;
 
   const handleSubmit = form.handleSubmit(async (values) => {
     await onSubmit(values);
@@ -91,41 +128,21 @@ export function TemplateFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] w-[96vw] max-w-[1200px] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Template' : 'Create Template'}</DialogTitle>
+          <DialogTitle>{isEdit ? 'Edit Template' : 'Create New Template'}</DialogTitle>
           <DialogDescription>
-            Build reusable email and WhatsApp template content with variables.
+            Save reusable templates in your personal section and use them in campaigns.
           </DialogDescription>
         </DialogHeader>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="type">Type</Label>
-              <select
-                id="type"
-                className="h-10 w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100"
-                disabled={isEdit}
-                {...form.register('type')}
-              >
-                <option value="email">Email</option>
-                <option value="whatsapp">WhatsApp</option>
-              </select>
-            </div>
+          <input type="hidden" {...form.register('type')} />
+          <input type="hidden" {...form.register('editorType')} />
+          <input type="hidden" {...form.register('category')} />
+          <input type="hidden" {...form.register('status')} />
+          <input type="hidden" {...form.register('layoutPreset')} />
 
+          <div className="grid gap-4">
             <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <select
-                id="status"
-                className="h-10 w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100"
-                {...form.register('status')}
-              >
-                <option value="active">Active</option>
-                <option value="draft">Draft</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
-
-            <div className="space-y-2 md:col-span-2">
               <Label htmlFor="name">Template Name</Label>
               <Input
                 id="name"
@@ -136,10 +153,8 @@ export function TemplateFormDialog({
               <FieldError message={form.formState.errors.name?.message} />
             </div>
 
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="subject">
-                {watchedType === 'email' ? 'Subject' : 'Template Subject'}
-              </Label>
+            <div className="space-y-2">
+              <Label htmlFor="subject">Subject</Label>
               <Input
                 id="subject"
                 className="border-zinc-800 bg-zinc-900 text-zinc-100"
@@ -148,38 +163,61 @@ export function TemplateFormDialog({
               />
               <FieldError message={form.formState.errors.subject?.message} />
             </div>
+          </div>
 
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="body">Body</Label>
-              {watchedType === 'email' ? (
+          <div className="space-y-2">
+            {watchedType === 'email' ? (
+              watchedEditorType === 'layout' ? (
                 <Controller
                   control={form.control}
                   name="body"
                   render={({ field }) => (
-                    <EmailTemplateBuilder
+                    <LayoutTemplateEditor
+                      key={`layout-editor-${isEdit ? template?.id ?? 'unknown' : `preset-${watchedLayoutPreset ?? 'none'}`}`}
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                      designJson={
+                        watchedDesignJson && typeof watchedDesignJson === 'object'
+                          ? watchedDesignJson
+                          : null
+                      }
+                      onDesignChange={(design) => {
+                        form.setValue('designJson', design, {
+                          shouldDirty: true,
+                        });
+                      }}
+                      mjmlValue={watchedMjmlBody}
+                      onMjmlChange={(mjml) => {
+                        form.setValue('mjmlBody', mjml, {
+                          shouldDirty: true,
+                        });
+                      }}
+                    />
+                  )}
+                />
+              ) : (
+                <Controller
+                  control={form.control}
+                  name="body"
+                  render={({ field }) => (
+                    <EmailTemplateHtmlEditor
                       value={field.value ?? ''}
                       onChange={field.onChange}
                     />
                   )}
                 />
-              ) : (
-                <textarea
-                  id="body"
-                  rows={8}
-                  className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
-                  placeholder="Hi {{name}}, we have a new update for {{company}}."
-                  {...form.register('body')}
-                />
-              )}
-              <FieldError message={form.formState.errors.body?.message} />
-            </div>
+              )
+            ) : (
+              <textarea
+                id="body"
+                rows={8}
+                className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                placeholder="Hi {{name}}, we have a new update for {{company}}."
+                {...form.register('body')}
+              />
+            )}
+            <FieldError message={form.formState.errors.body?.message} />
           </div>
-
-          <TemplatePreviewPanel
-            type={watchedType}
-            subject={watchedSubject}
-            body={watchedBody}
-          />
 
           <DialogFooter>
             <Button

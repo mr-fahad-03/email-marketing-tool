@@ -11,7 +11,6 @@ interface TemplateTypeTabsProps {
 const TEMPLATE_TYPE_OPTIONS: Array<{ label: string; value: TemplateTypeTabValue }> = [
   { label: 'All', value: 'all' },
   { label: 'Email', value: 'email' },
-  { label: 'WhatsApp', value: 'whatsapp' },
 ];
 
 export function TemplateTypeTabs({ value, onChange }: TemplateTypeTabsProps) {

@@ -1,11 +1,18 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app.exception';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { Contact } from '../contacts/schemas/contact.schema';
 import { WorkspacesService } from '../workspaces/workspaces.service';
-import { TemplateChannelType, TemplateStatus } from './constants/template.enums';
+import { ListProviderTemplatesDto } from './dto/list-provider-templates.dto';
+import {
+  TemplateChannelType,
+  TemplateEditorType,
+  TemplateStatus,
+  TemplateVisibility,
+} from './constants/template.enums';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { ListTemplatesDto } from './dto/list-templates.dto';
 import { PreviewTemplateDto } from './dto/preview-template.dto';
@@ -14,18 +21,66 @@ import { Template, TemplateDocument } from './schemas/template.schema';
 import { TemplatesPreviewService } from './templates-preview.service';
 import { TemplatesVariableService } from './templates-variable.service';
 import {
+  MjmlProviderStatusResponse,
+  MjmlProviderTemplateError,
+  MjmlRenderResponse,
+  ProviderTemplateDetailResponse,
+  ProviderTemplateListItem,
+  ProviderTemplateListResponse,
   TemplateListResponse,
   TemplatePreviewResponse,
   TemplateResponse,
 } from './types/template.response';
 
+interface GithubTreeEntry {
+  path?: string;
+  type?: string;
+}
+
+interface GithubTreeResponse {
+  tree?: GithubTreeEntry[];
+}
+
+interface MjmlApiResponse {
+  html?: string;
+  mjml?: string;
+  errors?: unknown[];
+}
+
+interface MjmlProviderSettings {
+  enabled: boolean;
+  apiBaseUrl: string;
+  appId: string;
+  secretKey: string;
+  renderMode: 'hybrid' | 'api_only' | 'local_only';
+  repoOwner: string;
+  repoName: string;
+  repoBranch: string;
+  githubToken: string;
+}
+
+interface MjmlTemplateCatalogEntry extends ProviderTemplateListItem {
+  sourcePath: string;
+}
+
 @Injectable()
 export class TemplatesService {
+  private readonly templateListCacheTtlMs = 15 * 60 * 1000;
+  private readonly templateDetailCacheTtlMs = 30 * 60 * 1000;
+
+  private mjmlTemplateListCache: { expiresAt: number; items: MjmlTemplateCatalogEntry[] } | null = null;
+  private readonly mjmlTemplateDetailCache = new Map<
+    string,
+    { expiresAt: number; detail: ProviderTemplateDetailResponse }
+  >();
+  private mjmlApiHealthCache: { expiresAt: number; reachable: boolean } | null = null;
+
   constructor(
     @InjectModel(Template.name)
     private readonly templateModel: Model<Template>,
     @InjectModel(Contact.name)
     private readonly contactModel: Model<Contact>,
+    private readonly configService: ConfigService,
     private readonly workspacesService: WorkspacesService,
     private readonly variableService: TemplatesVariableService,
     private readonly previewService: TemplatesPreviewService,
@@ -40,6 +95,9 @@ export class TemplatesService {
       channelType: dto.channelType,
       category: dto.category,
       status: dto.status ?? TemplateStatus.DRAFT,
+      visibility: dto.visibility ?? TemplateVisibility.PERSONAL,
+      editorType: dto.editorType ?? TemplateEditorType.HTML,
+      layoutPreset: dto.layoutPreset,
       variables: this.buildVariables(dto, undefined),
       email: null,
       whatsapp: null,
@@ -52,6 +110,8 @@ export class TemplatesService {
         previewText: dto.previewText ?? '',
         htmlBody: dto.htmlBody as string,
         textBody: dto.textBody ?? '',
+        designJson: dto.designJson ?? null,
+        mjmlBody: dto.mjmlBody ?? null,
       };
     } else {
       this.assertWhatsAppCreatePayload(dto);
@@ -89,6 +149,14 @@ export class TemplatesService {
       filter.status = query.status;
     }
 
+    if (query.visibility) {
+      filter.visibility = query.visibility;
+    }
+
+    if (query.editorType) {
+      filter.editorType = query.editorType;
+    }
+
     if (query.search?.trim()) {
       filter.name = new RegExp(this.escapeRegex(query.search.trim()), 'i');
     }
@@ -118,6 +186,144 @@ export class TemplatesService {
     };
   }
 
+  getMjmlProviderStatus(): MjmlProviderStatusResponse {
+    const settings = this.getMjmlSettings();
+    const apiReachable =
+      this.mjmlApiHealthCache && this.mjmlApiHealthCache.expiresAt > Date.now()
+        ? this.mjmlApiHealthCache.reachable
+        : null;
+
+    if (!settings.enabled) {
+      return {
+        provider: 'mjml',
+        enabled: false,
+        configured: false,
+        renderMode: settings.renderMode,
+        apiReachable,
+        fallbackToLocal: false,
+        message: 'Provider is disabled. Set MJML_PROVIDER_ENABLED=true to enable it.',
+      };
+    }
+
+    const apiConfigured = Boolean(settings.appId && settings.secretKey);
+    if (settings.renderMode === 'api_only' && !apiConfigured) {
+      return {
+        provider: 'mjml',
+        enabled: true,
+        configured: false,
+        renderMode: settings.renderMode,
+        apiReachable,
+        fallbackToLocal: false,
+        message: 'MJML API-only mode is enabled but MJML_API_APP_ID / MJML_API_SECRET_KEY are missing.',
+      };
+    }
+
+    if (!apiConfigured && settings.renderMode === 'hybrid') {
+      return {
+        provider: 'mjml',
+        enabled: true,
+        configured: true,
+        renderMode: settings.renderMode,
+        apiReachable,
+        fallbackToLocal: true,
+        message: 'Provider is enabled. Running in local renderer mode because MJML API credentials are not set.',
+      };
+    }
+
+    return {
+      provider: 'mjml',
+      enabled: true,
+      configured: true,
+      renderMode: settings.renderMode,
+      apiReachable,
+      fallbackToLocal: settings.renderMode !== 'api_only',
+      message:
+        settings.renderMode === 'local_only'
+          ? 'Provider is enabled and using local MJML compiler.'
+          : 'Provider is enabled and ready (API-first rendering).',
+    };
+  }
+
+  async listMjmlTemplates(
+    query: ListProviderTemplatesDto,
+    authUser: AuthUser,
+  ): Promise<ProviderTemplateListResponse> {
+    await this.resolveWorkspaceId(authUser);
+
+    const status = this.getMjmlProviderStatus();
+    if (!status.enabled) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'MJML_PROVIDER_DISABLED', status.message);
+    }
+
+    const page = query.page ?? 0;
+    const limit = query.limit ?? 24;
+
+    const items = await this.getCachedMjmlTemplateList();
+    const filtered = items.filter((item) => this.matchesMjmlTemplateFilter(item, query));
+    const start = page * limit;
+
+    return {
+      provider: 'mjml',
+      total: filtered.length,
+      items: filtered.slice(start, start + limit),
+    };
+  }
+
+  async getMjmlTemplateById(
+    templateId: string,
+    authUser: AuthUser,
+  ): Promise<ProviderTemplateDetailResponse> {
+    await this.resolveWorkspaceId(authUser);
+
+    const status = this.getMjmlProviderStatus();
+    if (!status.enabled) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'MJML_PROVIDER_DISABLED', status.message);
+    }
+
+    const now = Date.now();
+    const cached = this.mjmlTemplateDetailCache.get(templateId);
+    if (cached && cached.expiresAt > now) {
+      return cached.detail;
+    }
+
+    const catalog = await this.getCachedMjmlTemplateList();
+    const match = catalog.find((item) => item.templateId === templateId);
+    if (!match) {
+      throw new AppException(HttpStatus.NOT_FOUND, 'MJML_TEMPLATE_NOT_FOUND', 'Template not found in provider library');
+    }
+
+    const mjml = await this.fetchRawTemplate(match.sourcePath);
+    const rendered = await this.compileMjml(mjml);
+
+    const detail: ProviderTemplateDetailResponse = {
+      provider: 'mjml',
+      templateId: match.templateId,
+      name: match.name,
+      thumbnail: match.thumbnail,
+      categoryHints: match.categoryHints,
+      mjml: rendered.mjml,
+      html: rendered.html,
+      engine: rendered.engine,
+      errors: rendered.errors,
+    };
+
+    this.mjmlTemplateDetailCache.set(templateId, {
+      expiresAt: now + this.templateDetailCacheTtlMs,
+      detail,
+    });
+
+    return detail;
+  }
+
+  async renderMjml(mjml: string): Promise<MjmlRenderResponse> {
+    const status = this.getMjmlProviderStatus();
+    if (!status.enabled) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'MJML_PROVIDER_DISABLED', status.message);
+    }
+
+    return this.compileMjml(mjml);
+  }
+
   async findOne(id: string, authUser: AuthUser): Promise<TemplateResponse> {
     const template = await this.findOwnedTemplate(id, authUser);
     return this.toResponse(template);
@@ -136,6 +342,18 @@ export class TemplatesService {
 
     if (dto.status !== undefined) {
       template.status = dto.status;
+    }
+
+    if (dto.visibility !== undefined) {
+      template.visibility = dto.visibility;
+    }
+
+    if (dto.editorType !== undefined) {
+      template.editorType = dto.editorType;
+    }
+
+    if (dto.layoutPreset !== undefined) {
+      template.layoutPreset = dto.layoutPreset;
     }
 
     if (template.channelType === TemplateChannelType.EMAIL) {
@@ -160,6 +378,12 @@ export class TemplatesService {
       }
       if (dto.textBody !== undefined) {
         template.email.textBody = dto.textBody;
+      }
+      if (dto.designJson !== undefined) {
+        template.email.designJson = dto.designJson;
+      }
+      if (dto.mjmlBody !== undefined) {
+        template.email.mjmlBody = dto.mjmlBody;
       }
     }
 
@@ -302,6 +526,7 @@ export class TemplatesService {
       | 'previewText'
       | 'htmlBody'
       | 'textBody'
+      | 'mjmlBody'
       | 'templateName'
       | 'language'
       | 'bodyParams'
@@ -317,12 +542,14 @@ export class TemplatesService {
       const previewText = dto.previewText ?? existingTemplate?.email?.previewText;
       const htmlBody = dto.htmlBody ?? existingTemplate?.email?.htmlBody;
       const textBody = dto.textBody ?? existingTemplate?.email?.textBody;
+      const mjmlBody = dto.mjmlBody ?? existingTemplate?.email?.mjmlBody;
 
       extracted = this.variableService.extractVariablesFromTexts([
         subject,
         previewText,
         htmlBody,
         textBody,
+        mjmlBody,
       ]);
     }
 
@@ -418,6 +645,8 @@ export class TemplatesService {
       'previewText',
       'htmlBody',
       'textBody',
+      'designJson',
+      'mjmlBody',
     ];
 
     const provided = invalidFields.filter((field) => dto[field] !== undefined);
@@ -477,6 +706,9 @@ export class TemplatesService {
       name: template.name,
       category: template.category,
       status: template.status,
+      visibility: template.visibility ?? TemplateVisibility.PERSONAL,
+      editorType: template.editorType ?? TemplateEditorType.HTML,
+      layoutPreset: template.layoutPreset ?? null,
       variables: [...template.variables],
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,
@@ -490,6 +722,8 @@ export class TemplatesService {
         previewText: template.email.previewText,
         htmlBody: template.email.htmlBody,
         textBody: template.email.textBody,
+        designJson: template.email.designJson ?? null,
+        mjmlBody: template.email.mjmlBody ?? null,
       };
     }
 
@@ -531,6 +765,407 @@ export class TemplatesService {
 
       throw error;
     }
+  }
+
+  private async getCachedMjmlTemplateList(): Promise<MjmlTemplateCatalogEntry[]> {
+    const now = Date.now();
+    if (this.mjmlTemplateListCache && this.mjmlTemplateListCache.expiresAt > now) {
+      return this.mjmlTemplateListCache.items;
+    }
+
+    const settings = this.getMjmlSettings();
+    const tree = await this.fetchRepoTree(settings);
+    const thumbnailPaths = new Set(
+      tree
+        .filter((entry) => entry.type === 'blob' && entry.path?.startsWith('thumbnails/'))
+        .map((entry) => entry.path as string),
+    );
+
+    const templates = tree
+      .filter(
+        (entry) =>
+          entry.type === 'blob' &&
+          entry.path?.startsWith('templates/') &&
+          entry.path?.endsWith('.mjml'),
+      )
+      .map((entry) => this.mapGithubTemplateEntry(entry.path as string, thumbnailPaths, settings))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    this.mjmlTemplateListCache = {
+      expiresAt: now + this.templateListCacheTtlMs,
+      items: templates,
+    };
+
+    return templates;
+  }
+
+  private async fetchRepoTree(settings: MjmlProviderSettings): Promise<GithubTreeEntry[]> {
+    const response = await fetch(
+      `https://api.github.com/repos/${settings.repoOwner}/${settings.repoName}/git/trees/${encodeURIComponent(settings.repoBranch)}?recursive=1`,
+      {
+        method: 'GET',
+        headers: this.githubHeaders(settings),
+      },
+    );
+
+    if (!response.ok) {
+      const hint =
+        response.status === 403 ? ' Consider setting GITHUB_TOKEN for higher rate limits.' : '';
+      throw new AppException(
+        HttpStatus.BAD_GATEWAY,
+        'MJML_PROVIDER_REQUEST_FAILED',
+        `Failed to fetch MJML template index from GitHub (${response.status}).${hint}`,
+      );
+    }
+
+    const payload = (await response.json()) as GithubTreeResponse;
+    return Array.isArray(payload.tree) ? payload.tree : [];
+  }
+
+  private mapGithubTemplateEntry(
+    sourcePath: string,
+    thumbnailPaths: Set<string>,
+    settings: MjmlProviderSettings,
+  ): MjmlTemplateCatalogEntry {
+    const fileName = sourcePath.split('/').pop() ?? sourcePath;
+    const baseName = fileName.replace(/\.mjml$/i, '');
+
+    return {
+      provider: 'mjml',
+      templateId: this.encodeTemplateId(sourcePath),
+      sourcePath,
+      name: this.toTemplateName(baseName),
+      thumbnail: this.resolveThumbnailUrl(sourcePath, baseName, thumbnailPaths, settings),
+      categoryHints: this.inferCategoryHints(`${sourcePath} ${baseName}`),
+    };
+  }
+
+  private resolveThumbnailUrl(
+    sourcePath: string,
+    baseName: string,
+    thumbnailPaths: Set<string>,
+    settings: MjmlProviderSettings,
+  ): string {
+    const baseCandidates = [
+      `thumbnails/${baseName}.png`,
+      `thumbnails/${baseName}.jpg`,
+      `thumbnails/${baseName}.jpeg`,
+      `thumbnails/${baseName}.webp`,
+    ];
+
+    const nestedName = sourcePath.replace(/^templates\//, '').replace(/\.mjml$/i, '');
+    const nestedCandidates = [
+      `thumbnails/${nestedName}.png`,
+      `thumbnails/${nestedName}.jpg`,
+      `thumbnails/${nestedName}.jpeg`,
+      `thumbnails/${nestedName}.webp`,
+    ];
+
+    const match = [...baseCandidates, ...nestedCandidates].find((candidate) =>
+      thumbnailPaths.has(candidate),
+    );
+
+    return match ? this.toRawGithubUrl(match, settings) : '';
+  }
+
+  private async fetchRawTemplate(sourcePath: string): Promise<string> {
+    const settings = this.getMjmlSettings();
+    const response = await fetch(this.toRawGithubUrl(sourcePath, settings), {
+      method: 'GET',
+      headers: this.githubHeaders(settings),
+    });
+
+    if (!response.ok) {
+      throw new AppException(
+        HttpStatus.BAD_GATEWAY,
+        'MJML_PROVIDER_REQUEST_FAILED',
+        `Failed to fetch MJML template source (${response.status})`,
+      );
+    }
+
+    return response.text();
+  }
+
+  private async compileMjml(mjml: string): Promise<MjmlRenderResponse> {
+    const settings = this.getMjmlSettings();
+
+    if (settings.renderMode === 'local_only') {
+      return this.compileMjmlLocally(mjml);
+    }
+
+    if (settings.renderMode === 'api_only') {
+      return this.compileMjmlViaApi(mjml);
+    }
+
+    if (!settings.appId || !settings.secretKey) {
+      return this.compileMjmlLocally(mjml);
+    }
+
+    try {
+      return await this.compileMjmlViaApi(mjml);
+    } catch {
+      return this.compileMjmlLocally(mjml);
+    }
+  }
+
+  private async compileMjmlViaApi(mjml: string): Promise<MjmlRenderResponse> {
+    const settings = this.getMjmlSettings();
+    if (!settings.appId || !settings.secretKey) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'MJML_API_NOT_CONFIGURED',
+        'MJML_API_APP_ID and MJML_API_SECRET_KEY are required for API rendering',
+      );
+    }
+
+    const response = await fetch(`${settings.apiBaseUrl.replace(/\/+$/, '')}/render`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${settings.appId}:${settings.secretKey}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ mjml }),
+    });
+
+    if (!response.ok) {
+      this.mjmlApiHealthCache = { expiresAt: Date.now() + 5 * 60 * 1000, reachable: false };
+      throw new AppException(
+        HttpStatus.BAD_GATEWAY,
+        'MJML_API_RENDER_FAILED',
+        `MJML API render failed (${response.status})`,
+      );
+    }
+
+    const payload = (await response.json()) as MjmlApiResponse;
+    this.mjmlApiHealthCache = { expiresAt: Date.now() + 5 * 60 * 1000, reachable: true };
+
+    return {
+      engine: 'api',
+      mjml: typeof payload.mjml === 'string' ? payload.mjml : mjml,
+      html: typeof payload.html === 'string' ? payload.html : '',
+      errors: this.normalizeMjmlErrors(payload.errors),
+    };
+  }
+
+  private compileMjmlLocally(mjml: string): MjmlRenderResponse {
+    type MjmlCompilerResult = {
+      html?: string;
+      errors?: unknown[];
+    };
+
+    type MjmlCompiler = (
+      input: string,
+      options?: Record<string, unknown>,
+    ) => MjmlCompilerResult;
+
+    let compiler: MjmlCompiler | null = null;
+
+    try {
+      const required = require('mjml') as MjmlCompiler | { default?: MjmlCompiler };
+      compiler = typeof required === 'function' ? required : required.default ?? null;
+    } catch {
+      throw new AppException(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        'MJML_LOCAL_RENDERER_MISSING',
+        'Local MJML compiler is not installed. Run npm install mjml in Server to enable fallback rendering.',
+      );
+    }
+
+    if (!compiler) {
+      throw new AppException(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        'MJML_LOCAL_RENDERER_MISSING',
+        'Local MJML compiler is not available.',
+      );
+    }
+
+    const output = compiler(mjml, {
+      validationLevel: 'soft',
+      minify: false,
+      keepComments: false,
+    });
+
+    return {
+      engine: 'local',
+      mjml,
+      html: typeof output.html === 'string' ? output.html : '',
+      errors: this.normalizeMjmlErrors(output.errors),
+    };
+  }
+
+  private normalizeMjmlErrors(errors: unknown): MjmlProviderTemplateError[] {
+    if (!Array.isArray(errors)) {
+      return [];
+    }
+
+    const normalized: MjmlProviderTemplateError[] = [];
+
+    for (const entry of errors) {
+      if (typeof entry !== 'object' || entry === null) {
+        continue;
+      }
+
+      const record = entry as Record<string, unknown>;
+      const message = this.toStringValue(record.message) || this.toStringValue(record.formattedMessage);
+      if (!message) {
+        continue;
+      }
+
+      const item: MjmlProviderTemplateError = { message };
+      const tagName = this.toStringValue(record.tagName);
+      const formattedMessage = this.toStringValue(record.formattedMessage);
+      const line = this.toNumber(record.line);
+
+      if (tagName) {
+        item.tagName = tagName;
+      }
+      if (formattedMessage) {
+        item.formattedMessage = formattedMessage;
+      }
+      if (line > 0) {
+        item.line = line;
+      }
+
+      normalized.push(item);
+    }
+
+    return normalized;
+  }
+
+  private matchesMjmlTemplateFilter(
+    item: ProviderTemplateListItem,
+    query: Pick<ListProviderTemplatesDto, 'search' | 'category'>,
+  ): boolean {
+    const search = query.search?.trim().toLowerCase();
+    if (search) {
+      const haystack = `${item.name} ${item.categoryHints.join(' ')}`.toLowerCase();
+      if (!haystack.includes(search)) {
+        return false;
+      }
+    }
+
+    const category = query.category?.trim().toLowerCase();
+    if (!category || category === 'all') {
+      return true;
+    }
+
+    return item.categoryHints.includes(category);
+  }
+
+  private inferCategoryHints(source: string): string[] {
+    const haystack = source.toLowerCase();
+    const keywordMap: Record<string, string[]> = {
+      business: ['business', 'corporate', 'agency', 'consulting', 'finance'],
+      'online-store': ['ecommerce', 'e-commerce', 'store', 'shop', 'retail', 'marketplace'],
+      kitchen: ['food', 'restaurant', 'kitchen', 'cafe', 'bakery', 'catering'],
+      medicine: ['health', 'healthcare', 'medical', 'medicine', 'clinic', 'doctor', 'hospital'],
+      education: ['education', 'school', 'course', 'academy', 'learning', 'university'],
+      holidays: [
+        'holiday',
+        'christmas',
+        'new year',
+        'halloween',
+        'easter',
+        'valentine',
+        'black friday',
+        'memorial day',
+        'fathers day',
+      ],
+      tourism: ['travel', 'tourism', 'hotel', 'trip', 'vacation', 'flight', 'destination'],
+    };
+
+    const matches = Object.entries(keywordMap)
+      .filter(([, keywords]) => keywords.some((keyword) => haystack.includes(keyword)))
+      .map(([category]) => category);
+
+    return matches.length > 0 ? matches : ['general'];
+  }
+
+  private toTemplateName(value: string): string {
+    return value
+      .replace(/[-_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private encodeTemplateId(sourcePath: string): string {
+    return Buffer.from(sourcePath, 'utf8').toString('base64url');
+  }
+
+  private toRawGithubUrl(sourcePath: string, settings: MjmlProviderSettings): string {
+    return `https://raw.githubusercontent.com/${settings.repoOwner}/${settings.repoName}/${settings.repoBranch}/${sourcePath}`;
+  }
+
+  private githubHeaders(settings: MjmlProviderSettings): Record<string, string> {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'marketing-platform-mjml-provider',
+    };
+
+    if (settings.githubToken) {
+      headers.Authorization = `Bearer ${settings.githubToken}`;
+    }
+
+    return headers;
+  }
+
+  private getMjmlSettings(): MjmlProviderSettings {
+    const config = this.configService.get<{
+      mjml?: {
+        enabled?: boolean;
+        apiBaseUrl?: string;
+        appId?: string;
+        secretKey?: string;
+        renderMode?: string;
+        repoOwner?: string;
+        repoName?: string;
+        repoBranch?: string;
+        githubToken?: string;
+      };
+    }>('templateProviders');
+
+    const mjml = config?.mjml ?? {};
+
+    return {
+      enabled: Boolean(mjml.enabled),
+      apiBaseUrl: mjml.apiBaseUrl?.trim() || 'https://api.mjml.io/v1',
+      appId: mjml.appId?.trim() ?? '',
+      secretKey: mjml.secretKey?.trim() ?? '',
+      renderMode: this.toRenderMode(mjml.renderMode),
+      repoOwner: mjml.repoOwner?.trim() || 'mjmlio',
+      repoName: mjml.repoName?.trim() || 'email-templates',
+      repoBranch: mjml.repoBranch?.trim() || 'master',
+      githubToken: mjml.githubToken?.trim() ?? '',
+    };
+  }
+
+  private toRenderMode(value: string | undefined): 'hybrid' | 'api_only' | 'local_only' {
+    if (value === 'api_only' || value === 'local_only') {
+      return value;
+    }
+
+    return 'hybrid';
+  }
+
+  private toNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    return 0;
+  }
+
+  private toStringValue(value: unknown): string {
+    return typeof value === 'string' ? value : '';
   }
 
   private escapeRegex(value: string): string {

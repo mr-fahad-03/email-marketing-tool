@@ -12,6 +12,7 @@ interface AuthState {
   user: AuthUser | null;
   hydrated: boolean;
   isLoading: boolean;
+  setHydrated: (value: boolean) => void;
   initialize: () => Promise<void>;
   setSession: (input: AuthSession) => void;
   clearSession: () => void;
@@ -28,20 +29,17 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       hydrated: false,
       isLoading: false,
+      setHydrated: (value) => set({ hydrated: value }),
       initialize: async () => {
-        const state = get();
-        if (state.hydrated) {
-          return;
-        }
-
-        set({ hydrated: true });
-
         const sessionToken = get().token;
         if (!sessionToken) {
           return;
         }
 
         setAuthCookie(sessionToken);
+        if (get().user) {
+          return;
+        }
 
         try {
           set({ isLoading: true });
@@ -98,6 +96,9 @@ export const useAuthStore = create<AuthState>()(
         token: state.token,
         user: state.user,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated(true);
+      },
     },
   ),
 );

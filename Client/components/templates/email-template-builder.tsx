@@ -36,7 +36,6 @@ const FORMATS = [
   'color',
   'background',
   'list',
-  'bullet',
   'align',
   'link',
   'image',

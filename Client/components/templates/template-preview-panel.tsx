@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   extractTemplateVariablesFromParts,
   renderTemplateWithSampleData,
@@ -29,52 +28,36 @@ export function TemplatePreviewPanel({ type, subject, body }: TemplatePreviewPan
   }, [previewBody, type]);
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/70 text-zinc-100">
-      <CardHeader>
-        <CardTitle className="text-sm">Preview ({type})</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Variables</p>
-          {variables.length === 0 ? (
-            <p className="text-sm text-zinc-500">No variables found</p>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {variables.map((variable) => (
-                <span
-                  key={variable}
-                  className="rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-[11px] text-zinc-300"
-                >
-                  {`{{${variable}}}`}
-                </span>
-              ))}
-            </div>
-          )}
+    <div className="h-full rounded-lg border border-slate-300 bg-white p-4 text-slate-900">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Preview ({type})</p>
+          <p className="mt-1 text-sm text-slate-700">{previewSubject}</p>
         </div>
+        <div className="flex max-w-[55%] flex-wrap justify-end gap-1">
+          {variables.map((variable) => (
+            <span
+              key={variable}
+              className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600"
+            >
+              {`{{${variable}}}`}
+            </span>
+          ))}
+        </div>
+      </div>
 
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Rendered Subject</p>
-          <p className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200">
-            {previewSubject}
-          </p>
-        </div>
-
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Rendered Body</p>
-          {type === 'email' ? (
-            <iframe
-              title="Email template preview"
-              className="h-[360px] w-full rounded-md border border-zinc-800 bg-white"
-              sandbox=""
-              srcDoc={previewDocument}
-            />
-          ) : (
-            <pre className="whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300">
-              {previewBody}
-            </pre>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      {type === 'email' ? (
+        <iframe
+          title="Email template preview"
+          className="h-[64vh] min-h-[420px] w-full rounded-md border border-slate-300 bg-white"
+          sandbox=""
+          srcDoc={previewDocument}
+        />
+      ) : (
+        <pre className="h-[64vh] min-h-[420px] overflow-auto whitespace-pre-wrap rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          {previewBody}
+        </pre>
+      )}
+    </div>
   );
 }
