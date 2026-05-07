@@ -27,6 +27,7 @@ interface GrapesEditorInstance {
     getInnerHTML?: () => string;
   };
   getSelected?: () => unknown;
+  select?: (component: unknown) => void;
   setComponents: (input: string) => void;
   setDevice?: (name: string) => void;
   runCommand?: (id: string) => unknown;
@@ -84,6 +85,60 @@ function stripSingleWrapperAnchor(content: string): string {
   return match?.[1] ?? content;
 }
 
+function stripAllAnchors(content: string): string {
+  const source = content.trim();
+  if (!source) {
+    return '';
+  }
+
+  if (typeof window !== 'undefined') {
+    const host = window.document.createElement('div');
+    host.innerHTML = source;
+    host.querySelectorAll('a').forEach((anchor) => {
+      const parent = anchor.parentNode;
+      if (!parent) {
+        return;
+      }
+
+      while (anchor.firstChild) {
+        parent.insertBefore(anchor.firstChild, anchor);
+      }
+      parent.removeChild(anchor);
+    });
+    return host.innerHTML.trim();
+  }
+
+  return source.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, '$1').trim();
+}
+
+function extractWrapperAnchorDetails(
+  content: string,
+): { href: string; target: string; inner: string } | null {
+  const source = content.trim();
+  if (!source) {
+    return null;
+  }
+
+  const anchorMatch = source.match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
+  if (!anchorMatch) {
+    return null;
+  }
+
+  const attrs = anchorMatch[1] ?? '';
+  const hrefMatch = attrs.match(/\bhref=(["'])(.*?)\1/i);
+  const href = hrefMatch?.[2]?.trim() ?? '';
+  if (!href) {
+    return null;
+  }
+
+  const targetMatch = attrs.match(/\btarget=(["'])(.*?)\1/i);
+  return {
+    href,
+    target: targetMatch?.[2]?.trim() || '_self',
+    inner: anchorMatch[2] ?? '',
+  };
+}
+
 function extractInnerTextHtmlCandidate(content: string): string {
   const trimmed = content.trim();
   if (!trimmed) {
@@ -95,10 +150,21 @@ function extractInnerTextHtmlCandidate(content: string): string {
     return trimmed;
   }
 
-  // For compiled email wrappers (<td><div>...</div></td>), grab the visible inner div/html.
-  const divMatch = trimmed.match(/<div\b[^>]*>([\s\S]*?)<\/div>/i);
-  if (divMatch?.[1]?.trim()) {
-    return divMatch[1].trim();
+  // For compiled email wrappers, parse and keep the full visible content inside the first table cell.
+  if (typeof window !== 'undefined') {
+    const host = window.document.createElement('div');
+    host.innerHTML = trimmed;
+    const td = host.querySelector('td');
+    const tdInner = td?.innerHTML?.trim() ?? '';
+    if (tdInner) {
+      return tdInner;
+    }
+  }
+
+  // Fallback regex extraction for environments where DOM is unavailable.
+  const tdMatch = trimmed.match(/<td\b[^>]*>([\s\S]*?)<\/td>/i);
+  if (tdMatch?.[1]?.trim()) {
+    return tdMatch[1].trim();
   }
 
   // Fallback to plain text extraction from wrapper markup.
@@ -117,13 +183,6 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
 
   const el = component.getEl?.();
   if (el) {
-    const contentHolder =
-      (el.querySelector?.('div, p, span') as HTMLElement | null) ??
-      (el.firstElementChild as HTMLElement | null);
-    const inner = contentHolder?.innerHTML?.trim() ?? '';
-    if (inner) {
-      return extractInnerTextHtmlCandidate(inner);
-    }
     const elementContent = el.innerHTML?.trim() ?? '';
     if (elementContent) {
       return extractInnerTextHtmlCandidate(elementContent);
@@ -132,17 +191,69 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
 
   const serialized = component.toHTML?.().trim() ?? '';
   if (serialized) {
-    const nestedDiv = serialized.match(/<div\b[^>]*>([\s\S]*?)<\/div>/i);
-    if (nestedDiv?.[1]?.trim()) {
-      return extractInnerTextHtmlCandidate(nestedDiv[1].trim());
-    }
-    const match = serialized.match(/^<[^>]+>([\s\S]*)<\/[^>]+>$/i);
-    if (match?.[1]?.trim()) {
-      return extractInnerTextHtmlCandidate(match[1].trim());
-    }
+    return extractInnerTextHtmlCandidate(serialized);
   }
 
   return '';
+}
+
+function applyTextLinkToComponent(
+  component: GrapesComponentModel,
+  input: { href: string; target?: string },
+): void {
+  const href = input.href.trim();
+  const target = input.target?.trim() || '_self';
+  const currentContent = getComponentEditableContent(component);
+  const cleanContent = stripAllAnchors(stripSingleWrapperAnchor(currentContent));
+
+  if (!href) {
+    if (cleanContent !== currentContent) {
+      component.set('content', cleanContent);
+    }
+    return;
+  }
+
+  // Never overwrite content with an empty anchor.
+  if (!cleanContent.trim()) {
+    return;
+  }
+
+  const wrappedBlockMatch = cleanContent.match(/^<(div|p|span)\b([^>]*)>([\s\S]*)<\/\1>$/i);
+  const linkedContent = wrappedBlockMatch
+    ? `<${wrappedBlockMatch[1]}${wrappedBlockMatch[2]}><a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}">${wrappedBlockMatch[3]}</a></${wrappedBlockMatch[1]}>`
+    : `<a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}">${cleanContent}</a>`;
+  if (linkedContent !== currentContent) {
+    component.set('content', linkedContent);
+  }
+}
+
+function migrateLegacyTextLinkAttributes(component: GrapesComponentModel): void {
+  if (String(component.get('type') ?? '') !== 'mj-text') {
+    return;
+  }
+
+  const attrs = component.getAttributes?.() ?? {};
+  const legacyHref = attrs['data-text-link-href']?.trim() ?? '';
+  const legacyTarget = attrs['data-text-link-target']?.trim() || '_self';
+  const hasLegacyAttrs =
+    Object.prototype.hasOwnProperty.call(attrs, 'data-text-link-href') ||
+    Object.prototype.hasOwnProperty.call(attrs, 'data-text-link-target');
+
+  if (legacyHref) {
+    applyTextLinkToComponent(component, {
+      href: legacyHref,
+      target: legacyTarget,
+    });
+  }
+
+  if (!hasLegacyAttrs) {
+    return;
+  }
+
+  const nextAttrs = { ...attrs };
+  delete nextAttrs['data-text-link-href'];
+  delete nextAttrs['data-text-link-target'];
+  component.setAttributes(nextAttrs);
 }
 
 function decodeHtmlEntities(input: string): string {
@@ -307,6 +418,31 @@ export function LayoutTemplateEditor({
     forceSelectedComponentRefresh((prev) => prev + 1);
   };
 
+  const keepComponentSelected = (component: GrapesComponentModel | null) => {
+    setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor) {
+        return;
+      }
+
+      const currentlySelected = editor.getSelected?.() as GrapesComponentModel | null;
+      if (currentlySelected) {
+        setSelectedComponent(currentlySelected);
+        bumpSelectedComponent();
+        return;
+      }
+
+      if (!component) {
+        return;
+      }
+
+      editor.select?.(component);
+      const selectedAfterRestore = editor.getSelected?.() as GrapesComponentModel | null;
+      setSelectedComponent(selectedAfterRestore ?? component);
+      bumpSelectedComponent();
+    }, 0);
+  };
+
   useEffect(() => {
     selectedComponentRef.current = selectedComponent;
   }, [selectedComponent]);
@@ -395,43 +531,7 @@ export function LayoutTemplateEditor({
     }
 
     if (type === 'mj-text') {
-      addTraits([
-        {
-          type: 'text',
-          name: 'data-text-link-href',
-          label: 'Text Link URL',
-          placeholder: 'https://example.com',
-        },
-        {
-          type: 'select',
-          name: 'data-text-link-target',
-          label: 'Text Link Target',
-          options: [
-            { id: '_self', label: 'Same tab' },
-            { id: '_blank', label: 'New tab' },
-          ],
-        },
-      ]);
-
-      const attrs = cmp.getAttributes?.() ?? {};
-      const currentHref = attrs['data-text-link-href']?.trim() ?? '';
-      const hasLinkTraits = cmp.getTrait?.('data-text-link-href');
-      if (!hasLinkTraits || currentHref) {
-        return;
-      }
-
-      const content = String(cmp.get?.('content') ?? '');
-      const anchorMatch = content.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/i);
-      if (!anchorMatch?.[1]) {
-        return;
-      }
-
-      const targetMatch = content.match(/<a\b[^>]*target=["']([^"']+)["'][^>]*>/i);
-      cmp.setAttributes?.({
-        ...attrs,
-        'data-text-link-href': anchorMatch[1],
-        'data-text-link-target': targetMatch?.[1] || '_self',
-      });
+      migrateLegacyTextLinkAttributes(cmp as unknown as GrapesComponentModel);
       return;
     }
 
@@ -448,42 +548,6 @@ export function LayoutTemplateEditor({
           ],
         },
       ]);
-    }
-  };
-
-  const syncTextLinkMarkup = (component: unknown) => {
-    const cmp = component as {
-      get?: (key: string) => unknown;
-      getAttributes?: () => Record<string, string>;
-      toHTML?: () => string;
-      getEl?: () => HTMLElement | null;
-      set?: (key: string, value: unknown, options?: { silent?: boolean }) => void;
-    } | null;
-    if (!cmp || String(cmp.get?.('type') ?? '') !== 'mj-text') {
-      return;
-    }
-
-    const attrs = cmp.getAttributes?.() ?? {};
-    const href = attrs['data-text-link-href']?.trim() ?? '';
-    const target = attrs['data-text-link-target']?.trim() || '_self';
-    const currentContent = getComponentEditableContent(cmp as unknown as GrapesComponentModel);
-    const cleanContent = stripSingleWrapperAnchor(currentContent);
-
-    if (!href) {
-      if (cleanContent !== currentContent) {
-        cmp.set?.('content', cleanContent);
-      }
-      return;
-    }
-
-    // Never overwrite content with an empty anchor.
-    if (!cleanContent.trim()) {
-      return;
-    }
-
-    const linkedContent = `<a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}">${cleanContent}</a>`;
-    if (linkedContent !== currentContent) {
-      cmp.set?.('content', linkedContent);
     }
   };
 
@@ -653,11 +717,14 @@ export function LayoutTemplateEditor({
         if (currentSelected) {
           setSelectedComponent(currentSelected);
           bumpSelectedComponent();
+          return;
         }
+        setSelectedComponent(null);
+        bumpSelectedComponent();
       });
       editor.on('component:update:attributes', (component) => {
-        syncTextLinkMarkup(component);
         const cmp = component as GrapesComponentModel;
+        migrateLegacyTextLinkAttributes(cmp);
         if (selectedComponentRef.current && cmp === selectedComponentRef.current) {
           bumpSelectedComponent();
         }
@@ -804,8 +871,6 @@ export function LayoutTemplateEditor({
   const selectedTextColor = selectedStyles.color ?? selectedAttributes.color ?? '';
   const selectedFontFamily = selectedStyles['font-family'] ?? selectedAttributes['font-family'] ?? '';
   const selectedLineHeight = selectedStyles['line-height'] ?? selectedAttributes['line-height'] ?? '';
-  const selectedTextLink = selectedAttributes['data-text-link-href'] ?? '';
-  const selectedTextLinkTarget = selectedAttributes['data-text-link-target'] ?? '_self';
   const selectedButtonText = selectedTextContent;
   const selectedButtonHref = selectedAttributes.href ?? '';
   const selectedButtonTarget = selectedAttributes.target ?? '';
@@ -816,6 +881,11 @@ export function LayoutTemplateEditor({
   const isTextComponent = selectedType === 'mj-text';
   const isImageComponent = selectedType === 'mj-image';
   const isButtonComponent = selectedType === 'mj-button';
+  const selectedTextAnchor = isTextComponent
+    ? extractWrapperAnchorDetails(getComponentEditableContent(selectedComponent))
+    : null;
+  const selectedTextLink = selectedTextAnchor?.href ?? '';
+  const selectedTextLinkTarget = selectedTextAnchor?.target ?? '_self';
   const isLinkableComponent =
     isImageComponent ||
     isButtonComponent ||
@@ -955,7 +1025,17 @@ export function LayoutTemplateEditor({
                             rows={4}
                             value={selectedTextContent}
                             onChange={(event) => {
-                              selectedComponent.set('content', plainTextToHtml(event.target.value));
+                              const nextTextHtml = plainTextToHtml(event.target.value);
+                              if (!selectedTextLink) {
+                                selectedComponent.set('content', nextTextHtml);
+                              } else {
+                                const target = selectedTextLinkTarget || '_self';
+                                selectedComponent.set(
+                                  'content',
+                                  `<a href="${escapeHtmlAttr(selectedTextLink)}" target="${escapeHtmlAttr(target)}">${nextTextHtml}</a>`,
+                                );
+                              }
+                              keepComponentSelected(selectedComponent);
                             }}
                           />
                         </label>
@@ -1005,11 +1085,16 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedTextLink}
                             placeholder="https://example.com"
-                            onChange={(event) =>
-                              updateSelectedAttributes({
-                                'data-text-link-href': event.target.value.trim(),
-                              })
-                            }
+                            onChange={(event) => {
+                              if (!selectedComponent) {
+                                return;
+                              }
+                              applyTextLinkToComponent(selectedComponent, {
+                                href: event.target.value,
+                                target: selectedTextLinkTarget,
+                              });
+                              keepComponentSelected(selectedComponent);
+                            }}
                           />
                         </label>
                         <label className="block">
@@ -1017,11 +1102,16 @@ export function LayoutTemplateEditor({
                           <select
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedTextLinkTarget}
-                            onChange={(event) =>
-                              updateSelectedAttributes({
-                                'data-text-link-target': event.target.value,
-                              })
-                            }
+                            onChange={(event) => {
+                              if (!selectedComponent || !selectedTextLink) {
+                                return;
+                              }
+                              applyTextLinkToComponent(selectedComponent, {
+                                href: selectedTextLink,
+                                target: event.target.value,
+                              });
+                              keepComponentSelected(selectedComponent);
+                            }}
                           >
                             <option value="_self">Same tab</option>
                             <option value="_blank">New tab</option>
@@ -1156,6 +1246,7 @@ export function LayoutTemplateEditor({
                             value={selectedButtonText}
                             onChange={(event) => {
                               selectedComponent.set('content', plainTextToHtml(event.target.value));
+                              keepComponentSelected(selectedComponent);
                             }}
                           />
                         </label>
