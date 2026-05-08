@@ -26,8 +26,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
 
   if (isTemplateFullPageView) {
     return (
-      <div className="min-h-screen bg-zinc-100 text-zinc-900">
-        <main className="min-h-screen">{children}</main>
+      <div className="h-screen overflow-hidden bg-zinc-100 text-zinc-900">
+        <main className="h-full min-h-0 overflow-hidden">{children}</main>
       </div>
     );
   }

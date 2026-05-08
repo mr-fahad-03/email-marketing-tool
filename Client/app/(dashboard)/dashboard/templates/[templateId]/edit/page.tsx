@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowLeft, Eye } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -78,6 +78,8 @@ export default function EditTemplatePage() {
   useEffect(() => {
     form.register('designJson');
     form.register('mjmlBody');
+    form.register('name');
+    form.register('subject');
   }, [form]);
 
   useEffect(() => {
@@ -147,7 +149,7 @@ export default function EditTemplatePage() {
     <section
       className={cn(
         useFullPageEditor
-          ? 'flex min-h-[calc(100vh-5rem)] w-full flex-col gap-4 p-3 md:p-6'
+          ? 'flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden p-3 md:p-4'
           : 'mx-auto w-full max-w-6xl space-y-5 p-4 md:p-8',
       )}
     >
@@ -158,7 +160,7 @@ export default function EditTemplatePage() {
           {loadError}
         </div>
       ) : (
-        <form className={cn(useFullPageEditor ? 'flex h-full min-h-0 flex-col gap-4' : 'space-y-4')} onSubmit={handleSubmit}>
+        <form className={cn(useFullPageEditor ? 'flex h-full min-h-0 flex-col gap-3 overflow-hidden' : 'space-y-4')} onSubmit={handleSubmit}>
           <input type="hidden" {...form.register('type')} />
           <input type="hidden" {...form.register('editorType')} />
           <input type="hidden" {...form.register('category')} />
@@ -167,62 +169,30 @@ export default function EditTemplatePage() {
 
           {useFullPageEditor ? (
             <>
-              <Card>
-                <CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Template Name</Label>
-                    <Input id="name" placeholder="Welcome Sequence V1" {...form.register('name')} />
-                    <FieldError message={form.formState.errors.name?.message} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="subject">Subject</Label>
-                    <Input
-                      id="subject"
-                      placeholder="Hello {{name}}, your offer is ready"
-                      {...form.register('subject')}
-                    />
-                    <FieldError message={form.formState.errors.subject?.message} />
-                  </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-zinc-300"
-                      onClick={() =>
-                        router.push(
-                          template
-                            ? `/dashboard/templates/${encodeURIComponent(template.id)}`
-                            : '/dashboard/templates',
-                        )
-                      }
-                      disabled={isSubmitting}
-                    >
-                      <ArrowLeft className="mr-1 h-4 w-4" />
-                      Back
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-zinc-300"
-                      onClick={() => {
-                        if (!template) {
-                          return;
-                        }
-                        router.push(`/dashboard/templates/${encodeURIComponent(template.id)}`);
-                      }}
-                      disabled={!template}
-                    >
-                      <Eye className="mr-1 h-4 w-4" />
-                      Preview
-                    </Button>
-                    <Button type="submit" disabled={isSubmitting}>
-                      {isSubmitting ? 'Saving...' : 'Save Changes'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="flex flex-1 min-h-0 flex-col space-y-2">
+              {watchedEditorType !== 'layout' ? (
+                <div className="flex items-center justify-end gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-zinc-300"
+                    onClick={() =>
+                      router.push(
+                        template
+                          ? `/dashboard/templates/${encodeURIComponent(template.id)}`
+                          : '/dashboard/templates',
+                      )
+                    }
+                    disabled={isSubmitting}
+                  >
+                    <ArrowLeft className="mr-1 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </div>
+              ) : null}
+              <div className="flex flex-1 min-h-0 flex-col overflow-hidden space-y-2">
                 {watchedEditorType === 'layout' ? (
                   <Controller
                     control={form.control}
@@ -248,6 +218,33 @@ export default function EditTemplatePage() {
                             shouldDirty: true,
                           });
                         }}
+                        headerActions={(
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 border-[#1d718d] bg-[#0f5b76] px-3 text-xs font-semibold text-white hover:bg-[#0c6784] hover:text-white"
+                              onClick={() =>
+                                router.push(
+                                  template
+                                    ? `/dashboard/templates/${encodeURIComponent(template.id)}`
+                                    : '/dashboard/templates',
+                                )
+                              }
+                              disabled={isSubmitting}
+                            >
+                              <ArrowLeft className="mr-1 h-3.5 w-3.5" />
+                              Back
+                            </Button>
+                            <Button
+                              type="submit"
+                              className="h-8 bg-white px-3 text-xs font-semibold text-[#0a4f68] hover:bg-slate-100"
+                              disabled={isSubmitting}
+                            >
+                              {isSubmitting ? 'Saving...' : 'Save'}
+                            </Button>
+                          </>
+                        )}
                         fullHeight
                       />
                     )}

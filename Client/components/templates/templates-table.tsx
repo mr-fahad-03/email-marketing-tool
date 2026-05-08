@@ -62,7 +62,10 @@ export function TemplatesTable({
             }
           }}
         >
-          <div className="h-56 overflow-hidden rounded-md border border-zinc-800 bg-white">
+          <h3 className="mb-3 line-clamp-2 text-sm font-semibold text-zinc-100">
+            {template.name}
+          </h3>
+          <div className="h-52 overflow-hidden rounded-md border border-zinc-800 bg-white">
             <div className="h-[200%] w-[200%] origin-top-left scale-50">
               <iframe
                 title={`${template.name} preview`}

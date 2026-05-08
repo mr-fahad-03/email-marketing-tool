@@ -1,11 +1,10 @@
 'use client';
 
-import { ArrowLeft, Edit3, Eye, Trash2 } from 'lucide-react';
+import { ArrowLeft, Edit3, Trash2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { HttpClientError } from '@/lib/api/errors';
 import {
@@ -105,86 +104,72 @@ export default function TemplateDetailsPage() {
   };
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-          onClick={() => router.push('/dashboard/templates')}
-        >
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Back
-        </Button>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => void handleDelete()}
-            disabled={isDeleting || !template}
-          >
-            <Trash2 className="mr-1 h-4 w-4" />
-            {isDeleting ? 'Deleting...' : 'Delete'}
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              if (!template) {
-                return;
-              }
-              router.push(`/dashboard/templates/${encodeURIComponent(template.id)}/edit`);
-            }}
-            disabled={!template}
-          >
-            <Edit3 className="mr-1 h-4 w-4" />
-            Edit
-          </Button>
+    <section className="flex h-full min-h-0 flex-col bg-zinc-100 text-zinc-900">
+      <div className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur md:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Button
             type="button"
             variant="outline"
-            className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-            onClick={() => {
-              if (!template) {
-                return;
-              }
-              router.push(`/dashboard/templates/${encodeURIComponent(template.id)}`);
-            }}
-            disabled={!template}
+            className="border-zinc-300 text-zinc-900 hover:bg-zinc-100"
+            onClick={() => router.push('/dashboard/templates')}
           >
-            <Eye className="mr-1 h-4 w-4" />
-            Preview
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            Back
           </Button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                if (!template) {
+                  return;
+                }
+                router.push(`/dashboard/templates/${encodeURIComponent(template.id)}/edit`);
+              }}
+              disabled={!template}
+            >
+              <Edit3 className="mr-1 h-4 w-4" />
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDelete()}
+              disabled={isDeleting || !template}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
         </div>
       </div>
 
-      <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
-        <CardHeader>
-          <CardTitle className="text-base">Template</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <Skeleton className="h-[70vh] min-h-[420px] w-full rounded-md" />
-          ) : loadError ? (
-            <div className="rounded-md border border-rose-800/50 bg-rose-900/20 p-4 text-sm text-rose-200">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {isLoading ? (
+          <div className="h-full w-full p-4 md:p-6">
+            <Skeleton className="h-full w-full rounded-lg" />
+          </div>
+        ) : loadError ? (
+          <div className="flex h-full w-full items-center justify-center p-6">
+            <div className="w-full max-w-3xl rounded-md border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700">
               {loadError}
             </div>
-          ) : template ? (
-            <div className="h-[70vh] min-h-[420px] overflow-hidden rounded-md border border-zinc-800 bg-white">
-              <iframe
-                title={`${template.name} image preview`}
-                className="h-full w-full"
-                sandbox=""
-                srcDoc={toPreviewDocument(template.body)}
-              />
-            </div>
-          ) : (
-            <div className="rounded-md border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-300">
+          </div>
+        ) : template ? (
+          <iframe
+            title={`${template.name} preview`}
+            className="block h-full w-full border-0 bg-white"
+            sandbox=""
+            srcDoc={toPreviewDocument(template.body)}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center p-6">
+            <div className="rounded-md border border-zinc-300 bg-white p-4 text-sm text-zinc-700">
               Template not found.
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
