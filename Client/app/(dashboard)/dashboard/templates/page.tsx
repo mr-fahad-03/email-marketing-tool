@@ -1,6 +1,6 @@
 'use client';
 
-import { Code2, LayoutTemplate } from 'lucide-react';
+import { Code2, FolderKanban, LayoutTemplate, PlusCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -378,11 +378,35 @@ export default function TemplatesPage() {
     router.push(`/dashboard/templates/${encodeURIComponent(template.id)}`);
   };
 
+  const goToPersonalTemplatesSection = () => {
+    setActiveSection('personal');
+  };
+
   return (
     <section className="space-y-5">
-      <div>
-        <h2 className="text-xl font-semibold text-zinc-100">Templates</h2>
-        <p className="text-sm text-zinc-400">Create personal templates or browse the professional library.</p>
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-xl font-semibold text-zinc-100">Email Templates</h2>
+          <p className="text-sm text-zinc-400">Create personal templates or browse the professional library.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+            onClick={goToPersonalTemplatesSection}
+          >
+            <PlusCircle className="h-4 w-4" />
+            Add template
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-700"
+            onClick={() => router.push('/dashboard/templates/image-manager')}
+          >
+            <FolderKanban className="h-4 w-4" />
+            Image Manager
+          </button>
+        </div>
       </div>
 
       <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-900 p-1">

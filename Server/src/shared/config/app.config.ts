@@ -8,11 +8,7 @@ function resolveCorsOrigins(nodeEnv: string, rawOrigins: string): string[] {
 
   if (nodeEnv !== 'production') {
     return Array.from(
-      new Set([
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        ...configuredOrigins,
-      ]),
+      new Set(['http://localhost:3000', 'http://127.0.0.1:3000', ...configuredOrigins]),
     );
   }
 
@@ -94,6 +90,16 @@ export const templateProvidersConfig = registerAs('templateProviders', () => ({
   },
 }));
 
+export const mediaConfig = registerAs('media', () => ({
+  templateImages: {
+    uploadDir: process.env.TEMPLATE_IMAGES_UPLOAD_DIR ?? 'uploads/template-images',
+    publicPath: process.env.TEMPLATE_IMAGES_PUBLIC_PATH ?? '/uploads/template-images',
+    publicBaseUrl: process.env.TEMPLATE_IMAGES_PUBLIC_BASE_URL ?? '',
+    quotaMb: Number(process.env.TEMPLATE_IMAGES_QUOTA_MB ?? 250),
+    maxFileSizeMb: Number(process.env.TEMPLATE_IMAGES_MAX_FILE_SIZE_MB ?? 10),
+  },
+}));
+
 export const configuration = [
   appConfig,
   mongoConfig,
@@ -104,4 +110,5 @@ export const configuration = [
   webhookConfig,
   securityConfig,
   templateProvidersConfig,
+  mediaConfig,
 ];

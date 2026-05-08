@@ -14,6 +14,7 @@ import { SenderAccountsModule } from './modules/sender-accounts/sender-accounts.
 import { SettingsModule } from './modules/settings/settings.module';
 import { SuppressionModule } from './modules/suppression/suppression.module';
 import { TemplatesModule } from './modules/templates/templates.module';
+import { TemplateImagesModule } from './modules/template-images/template-images.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { UsersModule } from './modules/users/users.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
@@ -36,6 +37,7 @@ import { HealthController } from './health.controller';
     ContactsModule,
     SegmentsModule,
     TemplatesModule,
+    TemplateImagesModule,
     CampaignsModule,
     EmailModule,
     WhatsappModule,

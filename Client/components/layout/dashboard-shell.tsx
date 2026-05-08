@@ -13,10 +13,11 @@ export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const editorMode = (searchParams.get('editor') ?? '').trim().toLowerCase();
+  const isTemplateDocumentPage = /^\/dashboard\/templates\/[a-f\d]{24}(?:\/edit)?$/i.test(pathname);
   const isLayoutTemplateNewPage = pathname === '/dashboard/templates/new' && editorMode === 'layout';
   const isTemplateFullPageView =
     (pathname === '/dashboard/templates/new' && !isLayoutTemplateNewPage) ||
-    /^\/dashboard\/templates\/[^/]+(?:\/edit)?$/.test(pathname);
+    isTemplateDocumentPage;
   const useFullscreenEditorShell =
     isLayoutTemplateNewPage ||
     /^\/dashboard\/templates\/library\/[^/]+\/use$/.test(

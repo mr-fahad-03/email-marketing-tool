@@ -53,4 +53,12 @@ export const envValidationSchema = Joi.object({
   MJML_TEMPLATE_REPO_NAME: Joi.string().default('email-templates'),
   MJML_TEMPLATE_REPO_BRANCH: Joi.string().default('master'),
   GITHUB_TOKEN: Joi.string().allow('').optional(),
+  TEMPLATE_IMAGES_UPLOAD_DIR: Joi.string().default('uploads/template-images'),
+  TEMPLATE_IMAGES_PUBLIC_PATH: Joi.string().default('/uploads/template-images'),
+  TEMPLATE_IMAGES_PUBLIC_BASE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow('')
+    .default(''),
+  TEMPLATE_IMAGES_QUOTA_MB: Joi.number().min(1).default(250),
+  TEMPLATE_IMAGES_MAX_FILE_SIZE_MB: Joi.number().min(1).default(10),
 });

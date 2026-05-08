@@ -170,16 +170,23 @@ export default function NewTemplatePage() {
     setEditorOpened(true);
   };
 
-  const handleDraftSubmit = form.handleSubmit(async (values) => {
+  const handleDraftSave = async () => {
+    const valid = await form.trigger(['subject', 'body']);
+    if (!valid) {
+      toast.error('Please complete required fields before saving.');
+      return;
+    }
+
     setIsSavingDraft(true);
     try {
+      const values = form.getValues();
       form.reset(values);
       markDraftSaved();
       toast.success('Changes saved.');
     } finally {
       setIsSavingDraft(false);
     }
-  });
+  };
 
   const handleFinalSave = async () => {
     if (hasUnsavedChanges) {
@@ -229,7 +236,7 @@ export default function NewTemplatePage() {
         <form
           id="template-editor-form"
           className="flex h-full min-h-0 w-full flex-col"
-          onSubmit={handleDraftSubmit}
+          onSubmit={(event) => event.preventDefault()}
         >
           <input type="hidden" {...form.register('type')} />
           <input type="hidden" {...form.register('editorType')} />
@@ -275,8 +282,9 @@ export default function NewTemplatePage() {
                           Back
                         </Button>
                         <Button
-                          type="submit"
+                          type="button"
                           className="bg-white text-[#0b5066] hover:bg-cyan-50"
+                          onClick={() => void handleDraftSave()}
                           disabled={isSavingDraft || isFinalSaving || !hasUnsavedChanges}
                         >
                           <Save className="mr-1 h-4 w-4" />
