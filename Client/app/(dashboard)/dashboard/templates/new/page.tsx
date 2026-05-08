@@ -17,7 +17,6 @@ import { HttpClientError } from '@/lib/api/errors';
 import { createTemplate } from '@/lib/api/templates';
 import { getLayoutPresetDefinition } from '@/lib/constants/template-layouts';
 import type { TemplateLayoutPreset } from '@/lib/types/template';
-import { cn } from '@/lib/utils';
 import { templateFormSchema, type TemplateFormValues } from '@/lib/validators/template';
 
 const PREBUILT_LAYOUT_PRESETS: TemplateLayoutPreset[] = [
@@ -106,7 +105,8 @@ export default function NewTemplatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isFinalSaving, setIsFinalSaving] = useState(false);
-  const [editorOpened, setEditorOpened] = useState(false);
+  const [isHtmlNameStepOpen, setIsHtmlNameStepOpen] = useState(false);
+  const [htmlTemplateName, setHtmlTemplateName] = useState('');
 
   const form = useForm<TemplateFormValues>({
     resolver: zodResolver(templateFormSchema) as never,
@@ -136,7 +136,8 @@ export default function NewTemplatePage() {
     const defaults = getDefaultValues(editorMode, layoutPreset);
     form.reset(defaults);
     resetFlow(defaults.name ?? '');
-    setEditorOpened(false);
+    setIsHtmlNameStepOpen(false);
+    setHtmlTemplateName(defaults.name ?? '');
   }, [editorMode, form, layoutPreset, resetFlow]);
 
   useLayoutEditorScrollLock(isLayoutNewFlow);
@@ -147,8 +148,6 @@ export default function NewTemplatePage() {
   const watchedDesignJson = useWatch({ control: form.control, name: 'designJson' });
   const watchedMjmlBody = useWatch({ control: form.control, name: 'mjmlBody' }) ?? null;
   const watchedName = useWatch({ control: form.control, name: 'name' }) ?? '';
-  const watchedSubject = useWatch({ control: form.control, name: 'subject' }) ?? '';
-  const canOpenEditor = watchedName.trim().length > 0 && watchedSubject.trim().length > 0;
   const hasUnsavedChanges = form.formState.isDirty;
   const canGoNext = isDraftSaved && !hasUnsavedChanges;
 
@@ -162,12 +161,16 @@ export default function NewTemplatePage() {
     }
   }, [clearDraftProgress, hasUnsavedChanges]);
 
-  const openEditor = async () => {
-    const valid = await form.trigger(['name', 'subject']);
+  const openHtmlNameStep = async () => {
+    const valid = await form.trigger(['body']);
     if (!valid) {
+      toast.error('Please add template code before saving.');
       return;
     }
-    setEditorOpened(true);
+
+    const currentName = form.getValues('name') ?? '';
+    setHtmlTemplateName(currentName.trim());
+    setIsHtmlNameStepOpen(true);
   };
 
   const handleDraftSave = async () => {
@@ -216,19 +219,35 @@ export default function NewTemplatePage() {
     }
   };
 
-  const handleSubmit = form.handleSubmit(async (values) => {
+  const handleHtmlFinalSave = async () => {
+    const finalName = htmlTemplateName.trim();
+    if (finalName.length < 2) {
+      toast.error('Template name must be at least 2 characters.');
+      return;
+    }
+
+    const valid = await form.trigger(['body']);
+    if (!valid) {
+      toast.error('Please add template code before saving.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await createTemplate(values);
+      const values = form.getValues();
+      const payload: TemplateFormValues = {
+        ...values,
+        name: finalName,
+      };
+      await createTemplate(payload);
       toast.success('Template created successfully.');
       router.push('/dashboard/templates');
     } catch (error: unknown) {
       toast.error(getErrorMessage(error));
-      throw error;
     } finally {
       setIsSubmitting(false);
     }
-  });
+  };
 
   if (isLayoutNewFlow) {
     return (
@@ -349,148 +368,122 @@ export default function NewTemplatePage() {
   }
 
   return (
-    <section
-      className={cn(
-        editorOpened
-          ? 'flex min-h-[calc(100vh-5rem)] w-full flex-col gap-4 p-3 md:p-6'
-          : 'mx-auto w-full max-w-6xl space-y-5 p-4 md:p-8',
-      )}
-    >
-      <form className={cn(editorOpened ? 'flex h-full min-h-0 flex-col gap-4' : 'space-y-5')} onSubmit={handleSubmit}>
+    <section className="relative flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden p-3 md:p-4">
+      <form className="flex h-full min-h-0 flex-col gap-3 overflow-hidden" onSubmit={(event) => event.preventDefault()}>
         <input type="hidden" {...form.register('type')} />
         <input type="hidden" {...form.register('editorType')} />
         <input type="hidden" {...form.register('category')} />
         <input type="hidden" {...form.register('status')} />
         <input type="hidden" {...form.register('layoutPreset')} />
+        <input type="hidden" {...form.register('name')} />
+        <input type="hidden" {...form.register('subject')} />
 
-        {!editorOpened ? (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="border-zinc-300"
-                onClick={() => router.push('/dashboard/templates')}
-              >
-                <ArrowLeft className="mr-1 h-4 w-4" />
-                Back
-              </Button>
-            </div>
+        <Card>
+          <CardContent className="flex flex-wrap justify-between gap-2 p-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-zinc-300"
+              onClick={() => router.push('/dashboard/templates')}
+              disabled={isSubmitting}
+            >
+              <ArrowLeft className="mr-1 h-4 w-4" />
+              Back
+            </Button>
+            <Button type="button" onClick={() => void openHtmlNameStep()} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save'}
+            </Button>
+          </CardContent>
+        </Card>
 
-            <Card>
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden space-y-2">
+          {watchedType === 'email' ? (
+            watchedEditorType === 'layout' ? (
+              <Controller
+                control={form.control}
+                name="body"
+                render={({ field }) => (
+                  <LayoutTemplateEditor
+                    key={`layout-editor-new-${watchedLayoutPreset ?? 'none'}`}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    designJson={
+                      watchedDesignJson && typeof watchedDesignJson === 'object'
+                        ? watchedDesignJson
+                        : null
+                    }
+                    onDesignChange={(design) => {
+                      form.setValue('designJson', design, {
+                        shouldDirty: true,
+                      });
+                    }}
+                    mjmlValue={watchedMjmlBody}
+                    onMjmlChange={(mjml) => {
+                      form.setValue('mjmlBody', mjml, {
+                        shouldDirty: true,
+                      });
+                    }}
+                    fullHeight
+                  />
+                )}
+              />
+            ) : (
+              <Controller
+                control={form.control}
+                name="body"
+                render={({ field }) => (
+                  <EmailTemplateHtmlEditor value={field.value ?? ''} onChange={field.onChange} fullHeight />
+                )}
+              />
+            )
+          ) : (
+            <textarea
+              id="body"
+              rows={8}
+              className="h-full min-h-[420px] w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              placeholder="Hi {{name}}, we have a new update for {{company}}."
+              {...form.register('body')}
+            />
+          )}
+          <FieldError message={form.formState.errors.body?.message} />
+        </div>
+
+        {isHtmlNameStepOpen ? (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/45 p-4">
+            <Card className="w-full max-w-xl border-slate-300 bg-white text-slate-900">
               <CardHeader>
-                <CardTitle>Create New Template</CardTitle>
+                <CardTitle>Template Name</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Template Name</Label>
-                    <Input id="name" placeholder="Welcome Sequence V1" {...form.register('name')} />
-                    <FieldError message={form.formState.errors.name?.message} />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="subject">Subject</Label>
-                    <Input
-                      id="subject"
-                      placeholder="Hello {{name}}, your offer is ready"
-                      {...form.register('subject')}
-                    />
-                    <FieldError message={form.formState.errors.subject?.message} />
-                  </div>
+                <p className="text-sm text-slate-600">
+                  Add a template name to finish saving this HTML template.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="html-template-name-final">Template Name</Label>
+                  <Input
+                    id="html-template-name-final"
+                    value={htmlTemplateName}
+                    onChange={(event) => setHtmlTemplateName(event.target.value)}
+                    placeholder="Welcome Sequence V1"
+                  />
                 </div>
-
                 <div className="flex justify-end gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    className="border-zinc-300"
-                    onClick={() => router.push('/dashboard/templates')}
+                    onClick={() => setIsHtmlNameStepOpen(false)}
                     disabled={isSubmitting}
                   >
-                    Cancel
+                    Back
                   </Button>
-                  {canOpenEditor ? (
-                    <Button type="button" onClick={() => void openEditor()} disabled={isSubmitting}>
-                      Next
-                    </Button>
-                  ) : null}
+                  <Button type="button" onClick={() => void handleHtmlFinalSave()} disabled={isSubmitting}>
+                    {isSubmitting ? 'Saving...' : 'Save'}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-          </>
-        ) : (
-          <>
-            <Card>
-              <CardContent className="flex flex-wrap justify-end gap-2 p-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-zinc-300"
-                  onClick={() => setEditorOpened(false)}
-                  disabled={isSubmitting}
-                >
-                  Back
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Saving...' : 'Create Template'}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <div className="flex flex-1 min-h-0 flex-col space-y-2">
-              {watchedType === 'email' ? (
-                watchedEditorType === 'layout' ? (
-                  <Controller
-                    control={form.control}
-                    name="body"
-                    render={({ field }) => (
-                      <LayoutTemplateEditor
-                        key={`layout-editor-new-${watchedLayoutPreset ?? 'none'}`}
-                        value={field.value ?? ''}
-                        onChange={field.onChange}
-                        designJson={
-                          watchedDesignJson && typeof watchedDesignJson === 'object'
-                            ? watchedDesignJson
-                            : null
-                        }
-                        onDesignChange={(design) => {
-                          form.setValue('designJson', design, {
-                            shouldDirty: true,
-                          });
-                        }}
-                        mjmlValue={watchedMjmlBody}
-                        onMjmlChange={(mjml) => {
-                          form.setValue('mjmlBody', mjml, {
-                            shouldDirty: true,
-                          });
-                        }}
-                        fullHeight
-                      />
-                    )}
-                  />
-                ) : (
-                  <Controller
-                    control={form.control}
-                    name="body"
-                    render={({ field }) => (
-                      <EmailTemplateHtmlEditor value={field.value ?? ''} onChange={field.onChange} fullHeight />
-                    )}
-                  />
-                )
-              ) : (
-                <textarea
-                  id="body"
-                  rows={8}
-                  className="h-full min-h-[420px] w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  placeholder="Hi {{name}}, we have a new update for {{company}}."
-                  {...form.register('body')}
-                />
-              )}
-              <FieldError message={form.formState.errors.body?.message} />
-            </div>
-          </>
-        )}
+          </div>
+        ) : null}
       </form>
     </section>
   );
