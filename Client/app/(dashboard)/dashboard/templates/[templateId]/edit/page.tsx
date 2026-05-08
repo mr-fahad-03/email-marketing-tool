@@ -169,29 +169,6 @@ export default function EditTemplatePage() {
 
           {useFullPageEditor ? (
             <>
-              {watchedEditorType !== 'layout' ? (
-                <div className="flex items-center justify-end gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-zinc-300"
-                    onClick={() =>
-                      router.push(
-                        template
-                          ? `/dashboard/templates/${encodeURIComponent(template.id)}`
-                          : '/dashboard/templates',
-                      )
-                    }
-                    disabled={isSubmitting}
-                  >
-                    <ArrowLeft className="mr-1 h-4 w-4" />
-                    Back
-                  </Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? 'Saving...' : 'Save Changes'}
-                  </Button>
-                </div>
-              ) : null}
               <div className="flex flex-1 min-h-0 flex-col overflow-hidden space-y-2">
                 {watchedEditorType === 'layout' ? (
                   <Controller
@@ -257,6 +234,29 @@ export default function EditTemplatePage() {
                       <EmailTemplateHtmlEditor
                         value={field.value ?? ''}
                         onChange={field.onChange}
+                        headerActions={(
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100"
+                              onClick={() =>
+                                router.push(
+                                  template
+                                    ? `/dashboard/templates/${encodeURIComponent(template.id)}`
+                                    : '/dashboard/templates',
+                                )
+                              }
+                              disabled={isSubmitting}
+                            >
+                              <ArrowLeft className="mr-1 h-4 w-4" />
+                              Back
+                            </Button>
+                            <Button type="submit" className="h-8" disabled={isSubmitting}>
+                              {isSubmitting ? 'Saving...' : 'Save Changes'}
+                            </Button>
+                          </>
+                        )}
                         fullHeight
                       />
                     )}

@@ -378,24 +378,6 @@ export default function NewTemplatePage() {
         <input type="hidden" {...form.register('name')} />
         <input type="hidden" {...form.register('subject')} />
 
-        <Card>
-          <CardContent className="flex flex-wrap justify-between gap-2 p-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="border-zinc-300"
-              onClick={() => router.push('/dashboard/templates')}
-              disabled={isSubmitting}
-            >
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Back
-            </Button>
-            <Button type="button" onClick={() => void openHtmlNameStep()} disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : 'Save'}
-            </Button>
-          </CardContent>
-        </Card>
-
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden space-y-2">
           {watchedType === 'email' ? (
             watchedEditorType === 'layout' ? (
@@ -432,7 +414,28 @@ export default function NewTemplatePage() {
                 control={form.control}
                 name="body"
                 render={({ field }) => (
-                  <EmailTemplateHtmlEditor value={field.value ?? ''} onChange={field.onChange} fullHeight />
+                  <EmailTemplateHtmlEditor
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    headerActions={(
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100"
+                          onClick={() => router.push('/dashboard/templates')}
+                          disabled={isSubmitting}
+                        >
+                          <ArrowLeft className="mr-1 h-4 w-4" />
+                          Back
+                        </Button>
+                        <Button type="button" className="h-8" onClick={() => void openHtmlNameStep()} disabled={isSubmitting}>
+                          {isSubmitting ? 'Saving...' : 'Save'}
+                        </Button>
+                      </>
+                    )}
+                    fullHeight
+                  />
                 )}
               />
             )
