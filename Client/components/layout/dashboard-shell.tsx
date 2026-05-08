@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { DashboardHeader } from '@/components/layout/dashboard-header';
 import { DashboardSidebar } from '@/components/layout/dashboard-sidebar';
 
@@ -10,10 +11,15 @@ interface DashboardShellProps {
 
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const editorMode = (searchParams.get('editor') ?? '').trim().toLowerCase();
+  const isLayoutTemplateNewPage = pathname === '/dashboard/templates/new' && editorMode === 'layout';
   const isTemplateFullPageView =
-    pathname === '/dashboard/templates/new' ||
+    (pathname === '/dashboard/templates/new' && !isLayoutTemplateNewPage) ||
     /^\/dashboard\/templates\/[^/]+(?:\/edit)?$/.test(pathname);
-  const hideSidebarOnLibraryUsePage = /^\/dashboard\/templates\/library\/[^/]+\/use$/.test(
+  const useFullscreenEditorShell =
+    isLayoutTemplateNewPage ||
+    /^\/dashboard\/templates\/library\/[^/]+\/use$/.test(
     pathname,
   );
 
@@ -28,21 +34,21 @@ export function DashboardShell({ children }: DashboardShellProps) {
   return (
     <div
       className={
-        hideSidebarOnLibraryUsePage
+        useFullscreenEditorShell
           ? 'dashboard-shell-root h-screen overflow-hidden bg-zinc-100 text-zinc-900'
           : 'dashboard-shell-root min-h-screen bg-zinc-100 text-zinc-900'
       }
     >
-      {!hideSidebarOnLibraryUsePage ? <DashboardSidebar /> : null}
+      {!useFullscreenEditorShell ? <DashboardSidebar /> : null}
       <div
         className={
-          hideSidebarOnLibraryUsePage
+          useFullscreenEditorShell
             ? 'flex h-screen w-full flex-col overflow-hidden'
             : 'flex min-h-screen w-full flex-col md:pl-72'
         }
       >
         <DashboardHeader />
-        {hideSidebarOnLibraryUsePage ? (
+        {useFullscreenEditorShell ? (
           <main className="dashboard-shell-main h-full min-h-0 flex-1 overflow-hidden bg-zinc-100 p-0">{children}</main>
         ) : (
           <main className="dashboard-shell-main flex-1 bg-zinc-100 p-4 md:p-6">
