@@ -48,7 +48,20 @@ export function TemplateLibraryGrid({
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
-        <article key={item.id} className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+        <article
+          key={item.id}
+          role="button"
+          tabIndex={0}
+          aria-label={`Open template ${item.name}`}
+          className="cursor-pointer rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 transition hover:border-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-300 focus-visible:outline-none"
+          onClick={() => onPreviewTemplate(item)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onPreviewTemplate(item);
+            }
+          }}
+        >
           <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400">
             <Sparkles className="h-3.5 w-3.5" />
             <span>{getTemplateCategoryLabel(item.category)}</span>
@@ -65,7 +78,7 @@ export function TemplateLibraryGrid({
               <div className="h-[200%] w-[200%] origin-top-left scale-50">
                 <iframe
                   title={`${item.name} preview`}
-                  className="h-full w-full"
+                  className="h-full w-full pointer-events-none"
                   sandbox=""
                   srcDoc={toPreviewDocument(item.body)}
                 />
@@ -78,7 +91,14 @@ export function TemplateLibraryGrid({
             <span className="text-xs uppercase tracking-wide text-zinc-500">
               {item.editorType === 'layout' ? 'Layout editor' : 'HTML editor'}
             </span>
-            <Button size="sm" variant="outline" onClick={() => onPreviewTemplate(item)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(event) => {
+                event.stopPropagation();
+                onPreviewTemplate(item);
+              }}
+            >
               Preview
             </Button>
           </div>
