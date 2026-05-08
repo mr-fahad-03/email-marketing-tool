@@ -73,41 +73,45 @@ export function EmailTemplateHtmlEditor({
       <div className="html-editor-shell flex h-full min-h-[68vh] flex-1 flex-col gap-3 bg-white p-3 text-black">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-300 bg-white px-2 py-1.5">
           <div className="flex items-center gap-2">{headerActions}</div>
-          <div className="flex items-center gap-2">
-            <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 bg-white">
-              <button
-                type="button"
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 border-r border-zinc-300 px-3 text-xs font-semibold',
-                  isCodeMode ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:bg-zinc-100',
-                )}
-                onClick={() => setViewMode('code')}
-              >
-                Code
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 px-3 text-xs font-semibold',
-                  viewMode === 'desktop' ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:bg-zinc-100',
-                )}
-                onClick={() => setViewMode('desktop')}
-              >
-                <Laptop className="h-3.5 w-3.5" />
-                Desktop
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 border-l border-zinc-300 px-3 text-xs font-semibold',
-                  viewMode === 'mobile' ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:bg-zinc-100',
-                )}
-                onClick={() => setViewMode('mobile')}
-              >
-                <Smartphone className="h-3.5 w-3.5" />
-                Mobile
-              </button>
-            </div>
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={cn(
+                'inline-flex h-8 min-w-[74px] items-center justify-center rounded-md border px-3 text-xs font-semibold whitespace-nowrap',
+                isCodeMode
+                  ? 'border-black bg-black text-white'
+                  : 'border-zinc-300 bg-white text-black hover:bg-zinc-100',
+              )}
+              onClick={() => setViewMode('code')}
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex h-8 min-w-[86px] items-center justify-center gap-1 rounded-md border px-3 text-xs font-semibold whitespace-nowrap',
+                viewMode === 'desktop'
+                  ? 'border-black bg-black text-white'
+                  : 'border-zinc-300 bg-white text-black hover:bg-zinc-100',
+              )}
+              onClick={() => setViewMode('desktop')}
+            >
+              <Laptop className="h-3.5 w-3.5" />
+              Desktop
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex h-8 min-w-[80px] items-center justify-center gap-1 rounded-md border px-3 text-xs font-semibold whitespace-nowrap',
+                viewMode === 'mobile'
+                  ? 'border-black bg-black text-white'
+                  : 'border-zinc-300 bg-white text-black hover:bg-zinc-100',
+              )}
+              onClick={() => setViewMode('mobile')}
+            >
+              <Smartphone className="h-3.5 w-3.5" />
+              Mobile
+            </button>
             <Button
               type="button"
               variant="outline"
