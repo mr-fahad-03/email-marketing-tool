@@ -119,7 +119,7 @@ export function ContactFormDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Contact' : 'Add Contact'}</DialogTitle>
           <DialogDescription>
-            Manage contact details based on your CSV fields, plus category and labels.
+            Manage contact details based on your CSV fields, plus category and labels. Set 2 fields in a single line.
           </DialogDescription>
         </DialogHeader>
 
@@ -134,7 +134,7 @@ export function ContactFormDialog({
               />
             </div>
 
-            <div className="space-y-2 md:col-span-2">
+            <div className="space-y-2">
               <Label htmlFor="fullName">Contact Name</Label>
               <Input
                 id="fullName"
@@ -233,7 +233,7 @@ export function ContactFormDialog({
               />
             </div>
 
-            <div className="space-y-2 md:col-span-2">
+            <div className="space-y-2">
               <Label htmlFor="leadSource">Source</Label>
               <Input
                 id="leadSource"
@@ -257,7 +257,7 @@ export function ContactFormDialog({
               </select>
             </div>
 
-            <div className="space-y-2 md:col-span-2">
+            <div className="space-y-2">
               <Label htmlFor="labels">Labels</Label>
               <Input
                 id="labels"
