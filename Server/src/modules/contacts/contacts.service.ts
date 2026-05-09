@@ -94,6 +94,57 @@ export class ContactsService {
     return { category };
   }
 
+  async removeCategory(
+    categoryInput: string,
+    authUser: AuthUser,
+  ): Promise<{ category: string; modified: number }> {
+    const workspaceId = await this.resolveWorkspaceId(authUser);
+    const category = this.normalizeCategory(categoryInput);
+
+    if (!category) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'CATEGORY_REQUIRED', 'Category is required');
+    }
+
+    const workspaceObjectId = this.toObjectId(workspaceId);
+
+    const [clearCategoryResult, pullLabelsTagsResult] = await Promise.all([
+      this.contactModel
+        .updateMany(
+          {
+            workspaceId: workspaceObjectId,
+            category,
+          },
+          {
+            $set: {
+              category: '',
+            },
+          },
+        )
+        .exec(),
+      this.contactModel
+        .updateMany(
+          {
+            workspaceId: workspaceObjectId,
+            $or: [{ labels: category }, { tags: category }],
+          },
+          {
+            $pull: {
+              labels: category,
+              tags: category,
+            },
+          },
+        )
+        .exec(),
+    ]);
+
+    await this.workspacesService.removeCategory(workspaceId, category);
+
+    return {
+      category,
+      modified: (clearCategoryResult.modifiedCount ?? 0) + (pullLabelsTagsResult.modifiedCount ?? 0),
+    };
+  }
+
   async findAll(query: ListContactsDto, authUser: AuthUser): Promise<ContactListResponse> {
     const workspaceId = await this.resolveWorkspaceId(authUser);
 

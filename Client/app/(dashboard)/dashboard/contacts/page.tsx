@@ -1,6 +1,6 @@
 'use client';
 
-import { Columns3, Plus } from 'lucide-react';
+import { Columns3, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { ContactFormDialog } from '@/components/contacts/contact-form-dialog';
@@ -40,6 +40,7 @@ import {
   bulkSetCategoryToContacts,
   createContactCategory,
   createContact,
+  deleteContactCategory,
   deleteContact,
   getContactCategorySummary,
   getContacts,
@@ -142,6 +143,7 @@ export default function ContactsPage() {
   const [createdCategories, setCreatedCategories] = useState<string[]>([]);
   const [applyCategoryToSelected, setApplyCategoryToSelected] = useState(true);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [deletingCategoryName, setDeletingCategoryName] = useState<string | null>(null);
   const [discoveredCustomFieldKeys, setDiscoveredCustomFieldKeys] = useState<string[]>([]);
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({});
   const [hasHydratedColumnVisibility, setHasHydratedColumnVisibility] = useState(false);
@@ -538,6 +540,54 @@ export default function ContactsPage() {
     }
   };
 
+  const handleDeleteCategory = async (category: string) => {
+    const normalizedCategory = category.trim();
+    if (!normalizedCategory) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete category "${normalizedCategory}"? Contacts in this category will become uncategorized.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const normalizedCategoryLower = normalizedCategory.toLowerCase();
+    const isActiveFilterDeleted = filters.category.trim().toLowerCase() === normalizedCategoryLower;
+
+    setDeletingCategoryName(normalizedCategory);
+
+    try {
+      const result = await deleteContactCategory(normalizedCategory);
+
+      toast.success(
+        `Category "${result.category}" deleted. ${result.modified} contact${result.modified === 1 ? '' : 's'} updated.`,
+      );
+
+      setCreatedCategories((prev) =>
+        prev.filter((value) => value.trim().toLowerCase() !== normalizedCategoryLower),
+      );
+      setBulkTargetCategory((prev) =>
+        prev.trim().toLowerCase() === normalizedCategoryLower ? '' : prev,
+      );
+
+      if (isActiveFilterDeleted) {
+        setFilters((prev) => ({ ...prev, category: '' }));
+      }
+
+      await Promise.all([
+        isActiveFilterDeleted ? Promise.resolve() : loadContacts(),
+        loadCategorySummary(),
+      ]);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDeletingCategoryName(null);
+    }
+  };
+
   const goToPreviousPage = () => {
     setPagination((prev) => ({
       ...prev,
@@ -795,18 +845,37 @@ export default function ContactsPage() {
                 <p className="text-sm text-zinc-500">No categories available yet.</p>
               ) : (
                 categorySummary.map((item) => (
-                  <button
-                    key={item.category}
-                    type="button"
-                    className="flex w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-100 hover:bg-zinc-800"
-                    onClick={() => {
-                      setFilters((prev) => ({ ...prev, category: item.category }));
-                      setIsAllCategoriesModalOpen(false);
-                    }}
-                  >
-                    <span>{item.category}</span>
-                    <span className="text-zinc-400">{item.count}</span>
-                  </button>
+                  <div key={item.category} className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="flex flex-1 items-center justify-between rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-100 hover:bg-zinc-800"
+                      onClick={() => {
+                        setFilters((prev) => ({ ...prev, category: item.category }));
+                        setIsAllCategoriesModalOpen(false);
+                      }}
+                      disabled={Boolean(deletingCategoryName)}
+                    >
+                      <span>{item.category}</span>
+                      <span className="text-zinc-400">{item.count}</span>
+                    </button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 text-zinc-400 hover:bg-red-500/10 hover:text-red-400"
+                      onClick={() => void handleDeleteCategory(item.category)}
+                      disabled={Boolean(deletingCategoryName)}
+                      title={`Delete category ${item.category}`}
+                      aria-label={`Delete category ${item.category}`}
+                    >
+                      {deletingCategoryName === item.category ? (
+                        <span className="text-xs">...</span>
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 ))
               )}
             </div>

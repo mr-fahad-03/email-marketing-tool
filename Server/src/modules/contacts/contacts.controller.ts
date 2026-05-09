@@ -68,6 +68,14 @@ export class ContactsController {
     return this.contactsService.getCategorySummary(authUser);
   }
 
+  @Delete('categories/:category')
+  removeCategory(
+    @Param('category') category: string,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<{ category: string; modified: number }> {
+    return this.contactsService.removeCategory(category, authUser);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseObjectIdPipe) id: string,

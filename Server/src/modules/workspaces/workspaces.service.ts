@@ -80,6 +80,24 @@ export class WorkspacesService {
     ).sort((a, b) => a.localeCompare(b));
   }
 
+  async removeCategory(workspaceId: string, category: string): Promise<void> {
+    const normalizedCategory = category.trim().toLowerCase();
+    if (!normalizedCategory) {
+      return;
+    }
+
+    await this.workspaceModel
+      .updateOne(
+        { _id: this.toObjectId(workspaceId, 'INVALID_WORKSPACE_ID') },
+        {
+          $pull: {
+            categories: normalizedCategory,
+          },
+        },
+      )
+      .exec();
+  }
+
   private resolveDefaultWorkspaceName(fullName: string, customName?: string): string {
     const name = customName?.trim();
     if (name) {

@@ -1,4 +1,4 @@
-﻿import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
   IsArray,
   IsEmail,
@@ -7,7 +7,6 @@ import {
   IsOptional,
   IsString,
   MaxLength,
-  ValidateNested,
 } from 'class-validator';
 import {
   ContactEmailStatus,
@@ -16,9 +15,6 @@ import {
   ContactWhatsappStatus,
 } from '../constants/contact.enums';
 
-class CustomFieldsDto {
-  [key: string]: unknown;
-}
 
 export class UpdateContactDto {
   @IsOptional()
@@ -83,8 +79,6 @@ export class UpdateContactDto {
 
   @IsOptional()
   @IsObject()
-  @ValidateNested()
-  @Type(() => CustomFieldsDto)
   readonly customFields?: Record<string, unknown>;
 
   @IsOptional()
@@ -109,3 +103,4 @@ export class UpdateContactDto {
   @MaxLength(2000)
   readonly notes?: string;
 }
+

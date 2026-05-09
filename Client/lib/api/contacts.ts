@@ -255,6 +255,30 @@ export async function createContactCategory(category: string): Promise<{ categor
   };
 }
 
+export async function deleteContactCategory(
+  category: string,
+): Promise<{ category: string; modified: number }> {
+  const normalizedCategory = category.trim();
+
+  const payload = await apiRequest<unknown>({
+    method: 'DELETE',
+    url: `/contacts/categories/${encodeURIComponent(normalizedCategory)}`,
+  });
+
+  const record = getRecord(payload);
+  if (!record) {
+    return {
+      category: normalizedCategory,
+      modified: 0,
+    };
+  }
+
+  return {
+    category: getString(record, ['category']) ?? normalizedCategory,
+    modified: getNumber(record, ['modified']) ?? 0,
+  };
+}
+
 export async function createContact(values: ContactFormValues): Promise<void> {
   await apiRequest<unknown, Record<string, unknown>>({
     method: 'POST',
