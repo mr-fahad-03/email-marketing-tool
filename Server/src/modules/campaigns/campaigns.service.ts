@@ -312,6 +312,16 @@ export class CampaignsService {
     return this.toResponse(saved);
   }
 
+  async remove(id: string, authUser: AuthUser): Promise<{ deleted: true; id: string }> {
+    const campaign = await this.findOwnedCampaign(id, authUser);
+    await this.campaignModel.deleteOne({ _id: campaign._id }).exec();
+
+    return {
+      deleted: true,
+      id,
+    };
+  }
+
   async start(id: string, authUser: AuthUser): Promise<CampaignResponse> {
     const campaign = await this.findOwnedCampaign(id, authUser);
     const workspaceId = campaign.workspaceId.toString();

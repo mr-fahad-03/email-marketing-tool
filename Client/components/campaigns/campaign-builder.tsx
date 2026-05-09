@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createCampaign, getCampaignContacts, getCampaigns, startCampaign } from '@/lib/api/campaigns';
+import { createCampaign, deleteCampaign, getCampaignContacts, getCampaigns, startCampaign } from '@/lib/api/campaigns';
 import { bulkAddLabelToContacts, updateContact } from '@/lib/api/contacts';
 import { getContacts, getContactCategorySummary } from '@/lib/api/contacts';
 import type { ContactCategorySummaryItem } from '@/lib/types/contact';
@@ -164,6 +164,7 @@ export function CampaignBuilder() {
   const [isAudienceBulkLoading, setIsAudienceBulkLoading] = useState(false);
   const [isAudienceSaving, setIsAudienceSaving] = useState(false);
   const [lastLaunchedCampaignId, setLastLaunchedCampaignId] = useState<string | null>(null);
+  const [deletingCampaignId, setDeletingCampaignId] = useState<string | null>(null);
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [categories, setCategories] = useState<ContactCategorySummaryItem[]>([]);
@@ -438,6 +439,20 @@ export function CampaignBuilder() {
     setLastLaunchedCampaignId(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.success(`"${campaign.name}" loaded. Pick a different template and launch when ready.`);
+  };
+
+  const handleDeleteCampaign = async (campaign: Campaign) => {
+    setDeletingCampaignId(campaign.id);
+
+    try {
+      await deleteCampaign(campaign.id);
+      toast.success(`Campaign "${campaign.name}" deleted.`);
+      await loadRecentCampaigns();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDeletingCampaignId(null);
+    }
   };
 
   const handleOpenCampaignAudience = (campaign: Campaign) => {
@@ -973,7 +988,7 @@ export function CampaignBuilder() {
           <div>
             <CardTitle className="text-base">Recent Campaigns</CardTitle>
             <p className="mt-1 text-sm text-zinc-400">
-              Click a campaign to see its users. Use `Run Again` to reuse it with a different template.
+              Use Delete to remove campaigns you no longer need.
             </p>
           </div>
           <Button
@@ -992,19 +1007,11 @@ export function CampaignBuilder() {
           ) : recentCampaigns.length === 0 ? (
             <p className="text-sm text-zinc-500">No campaigns found yet. Launch one to reuse it here.</p>
           ) : (
-            recentCampaigns.map((campaign) => {
-              const isSelected = selectedCampaign?.id === campaign.id;
-
-              return (
-                <div
-                  key={campaign.id}
-                  className={`flex cursor-pointer flex-col gap-3 rounded-lg border p-4 transition-colors lg:flex-row lg:items-center lg:justify-between ${
-                    isSelected
-                      ? 'border-zinc-300 bg-zinc-100 text-zinc-900'
-                      : 'border-zinc-800 bg-zinc-950/60 text-zinc-100 hover:bg-zinc-900'
-                  }`}
-                  onClick={() => handleOpenCampaignAudience(campaign)}
-                >
+            recentCampaigns.map((campaign) => (
+              <div
+                key={campaign.id}
+                className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-zinc-100 transition-colors hover:bg-zinc-900 lg:flex-row lg:items-center lg:justify-between"
+              >
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium">{campaign.name}</p>
@@ -1015,11 +1022,7 @@ export function CampaignBuilder() {
                         {campaign.status ?? 'draft'}
                       </Badge>
                     </div>
-                    <div
-                      className={`flex flex-wrap gap-x-4 gap-y-1 text-xs ${
-                        isSelected ? 'text-zinc-700' : 'text-zinc-500'
-                      }`}
-                    >
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
                       <span>
                         Audience:{' '}
                         {campaign.segmentId
@@ -1033,165 +1036,21 @@ export function CampaignBuilder() {
                   </div>
                   <Button
                     type="button"
+                    variant="destructive"
+                    className="border-red-600 text-white hover:bg-red-600/90"
                     onClick={(event) => {
                       event.stopPropagation();
-                      handleReuseCampaign(campaign);
+                      void handleDeleteCampaign(campaign);
                     }}
+                    disabled={deletingCampaignId === campaign.id}
                   >
-                    Run Again
+                    {deletingCampaignId === campaign.id ? 'Deleting...' : 'Delete'}
                   </Button>
                 </div>
-              );
-            })
+              ))
           )}
         </CardContent>
       </Card>
-
-      {selectedCampaign && (
-        <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
-          <CardHeader className="space-y-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <CardTitle className="text-base">Campaign Users</CardTitle>
-                <p className="mt-1 text-sm text-zinc-400">
-                  {selectedCampaign.name} • {audienceSummaryLabel}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-                onClick={() => void loadCampaignAudience(selectedCampaign, audiencePagination.page)}
-                disabled={isLoadingAudience}
-              >
-                {isLoadingAudience ? 'Refreshing...' : 'Refresh Users'}
-              </Button>
-            </div>
-
-            <div className="flex flex-col gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-zinc-400">{selectedAudienceIds.length} selected</p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Input
-                  className="h-9 border-zinc-800 bg-zinc-900 text-zinc-100"
-                  placeholder="Label to add"
-                  value={audienceLabelInput}
-                  onChange={(event) => setAudienceLabelInput(event.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-                  onClick={() => void handleBulkAddAudienceLabel()}
-                  disabled={
-                    selectedAudienceIds.length === 0 ||
-                    !audienceLabelInput.trim() ||
-                    isAudienceBulkLoading
-                  }
-                >
-                  {isAudienceBulkLoading ? 'Applying...' : 'Add Label to Selected'}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isLoadingAudience ? (
-              <p className="text-sm text-zinc-500">Loading campaign users...</p>
-            ) : campaignAudience.length === 0 ? (
-              <p className="text-sm text-zinc-500">No users found for this campaign.</p>
-            ) : (
-              campaignAudience.map((contact) => {
-                const isChecked = selectedAudienceIds.includes(contact.id);
-
-                return (
-                  <div
-                    key={contact.id}
-                    className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 lg:flex-row lg:items-center lg:justify-between"
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4"
-                        checked={isChecked}
-                        onChange={(event) =>
-                          handleToggleSelectAudience(contact.id, event.target.checked)
-                        }
-                      />
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium text-zinc-100">
-                            {getContactLabel(contact)}
-                          </p>
-                          <Badge variant="neutral">
-                            {contact.subscriptionStatus ?? 'subscribed'}
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-                          <span>{contact.email ?? contact.phone ?? 'No contact method'}</span>
-                          {contact.company ? <span>{contact.company}</span> : null}
-                          {contact.category ? <span>Category: {contact.category}</span> : <span>No category</span>}
-                          {contact.labels.length > 0 ? <span>Labels: {contact.labels.join(', ')}</span> : <span>No labels</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <Button type="button" variant="outline" onClick={() => setEditingAudienceContact(contact)}>
-                      Edit User
-                    </Button>
-                  </div>
-                );
-              })
-            )}
-
-            {campaignAudience.length > 0 && (
-              <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <label className="flex items-center gap-2 text-xs text-zinc-400">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={
-                      campaignAudience.length > 0 &&
-                      selectedAudienceIds.length === campaignAudience.length
-                    }
-                    onChange={(event) => handleToggleSelectAllAudience(event.target.checked)}
-                  />
-                  Select all on this page
-                </label>
-                <div className="flex items-center gap-3">
-                  <p className="text-xs text-zinc-500">
-                    Page {audiencePagination.page} of {audiencePagination.totalPages} •{' '}
-                    {audiencePagination.total} users
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-                    disabled={audiencePagination.page <= 1 || isLoadingAudience}
-                    onClick={() =>
-                      selectedCampaign &&
-                      void loadCampaignAudience(selectedCampaign, audiencePagination.page - 1)
-                    }
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-zinc-700 text-zinc-200 hover:bg-zinc-800"
-                    disabled={
-                      audiencePagination.page >= audiencePagination.totalPages || isLoadingAudience
-                    }
-                    onClick={() =>
-                      selectedCampaign &&
-                      void loadCampaignAudience(selectedCampaign, audiencePagination.page + 1)
-                    }
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       <ContactFormDialog
         open={Boolean(editingAudienceContact)}

@@ -168,6 +168,13 @@ export async function startCampaign(campaignId: string): Promise<void> {
   });
 }
 
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  await apiRequest<unknown>({
+    method: 'DELETE',
+    url: `/campaigns/${campaignId}`,
+  });
+}
+
 export async function getCampaigns(params: {
   page?: number;
   limit?: number;

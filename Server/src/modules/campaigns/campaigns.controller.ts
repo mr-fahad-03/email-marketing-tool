@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { AuthUser } from '../../common/types/auth-user.type';
@@ -88,5 +88,13 @@ export class CampaignsController {
     @CurrentUser() authUser: AuthUser,
   ): Promise<CampaignResponse> {
     return this.campaignsService.cancel(id, authUser);
+  }
+
+  @Delete(':id')
+  remove(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<{ deleted: true; id: string }> {
+    return this.campaignsService.remove(id, authUser);
   }
 }
