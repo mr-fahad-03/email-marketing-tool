@@ -161,10 +161,13 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               )}
             </Badge>
             <StatusBadge status={campaign.status} />
+            {campaign.updatedAt && campaign.updatedAt !== campaign.createdAt ? (
+              <Badge variant="secondary">Edited</Badge>
+            ) : null}
           </div>
           <Button
             size="sm"
-            className="gap-1.5 bg-zinc-900 text-white hover:bg-zinc-800"
+            className="gap-1.5 border border-zinc-900 bg-black text-white hover:bg-black hover:text-white"
             onClick={() => onEdit(campaign)}
           >
             <RefreshCw className="h-3.5 w-3.5" />

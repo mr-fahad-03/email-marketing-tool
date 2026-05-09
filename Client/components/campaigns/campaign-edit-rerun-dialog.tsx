@@ -122,7 +122,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
     async (ch: 'email' | 'whatsapp') => {
       setIsLoading(true);
       const [contactsRes, sendersRes, templatesRes, categoriesRes] = await Promise.allSettled([
-        getContacts({ page: 1, limit: 200 }),
+        getContacts({ page: 1, limit: 100 }),
         getSenderAccounts(ch),
         getTemplates({ page: 1, limit: 100, type: ch }),
         getContactCategorySummary(),
@@ -153,7 +153,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
 
       // Resolve category → contact IDs at launch time
       if (values.targetMode === 'category' && values.categoryName) {
-        const result = await getContacts({ category: values.categoryName, page: 1, limit: 10000 });
+        const result = await getContacts({ category: values.categoryName, page: 1, limit: 100 });
         resolvedContactIds = result.items.map((c) => c.id);
         if (resolvedContactIds.length === 0) {
           toast.error(`No contacts found in category "${values.categoryName}".`);
@@ -204,49 +204,71 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
           <div className="space-y-1.5">
             <Label>Channel</Label>
             <div className="grid grid-cols-2 gap-2">
-              {(['email', 'whatsapp'] as const).map((ch) => (
-                <button
-                  key={ch}
-                  type="button"
-                  className={`rounded-lg border p-3 text-left text-sm transition-colors ${
-                    channel === ch
-                      ? 'border-zinc-900 bg-zinc-900 text-white'
-                      : 'border-zinc-200 text-zinc-700 hover:border-zinc-400'
-                  }`}
-                  onClick={() => {
-                    form.setValue('channel', ch);
-                    form.setValue('senderAccountIds', []);
-                    form.setValue('templateId', '');
-                  }}
-                >
-                  <p className="font-medium capitalize">{ch}</p>
-                </button>
-              ))}
+              <button
+                type="button"
+                className={`rounded-lg border-2 p-3 text-left text-sm font-semibold transition-all ${
+                  channel === 'email'
+                    ? 'border-zinc-900 bg-zinc-100 text-black'
+                    : 'border-zinc-400 bg-white text-black hover:bg-zinc-200'
+                }`}
+                onClick={() => {
+                  form.setValue('channel', 'email');
+                  form.setValue('senderAccountIds', []);
+                  form.setValue('templateId', '');
+                }}
+              >
+                Email
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg border-2 p-3 text-left text-sm font-semibold transition-all ${
+                  channel === 'whatsapp'
+                    ? 'border-zinc-900 bg-zinc-100 text-black'
+                    : 'border-zinc-400 bg-white text-black hover:bg-zinc-200'
+                }`}
+                onClick={() => {
+                  form.setValue('channel', 'whatsapp');
+                  form.setValue('senderAccountIds', []);
+                  form.setValue('templateId', '');
+                }}
+              >
+                WhatsApp
+              </button>
             </div>
           </div>
 
           {/* Audience Mode */}
           <div className="space-y-2">
             <Label>Audience</Label>
-            <div className="flex rounded-md border border-zinc-200 p-1 gap-1">
-              {(['contacts', 'category'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                    targetMode === mode
-                      ? 'bg-zinc-900 text-white'
-                      : 'text-zinc-500 hover:text-zinc-900'
-                  }`}
-                  onClick={() => {
-                    form.setValue('targetMode', mode);
-                    if (mode !== 'contacts') form.setValue('contactIds', []);
-                    if (mode !== 'category') form.setValue('categoryName', '');
-                  }}
-                >
-                  {mode === 'contacts' ? 'Select Contacts' : 'By Category'}
-                </button>
-              ))}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={`rounded-lg border-2 p-3 text-left text-sm font-semibold transition-all ${
+                  targetMode === 'contacts'
+                    ? 'border-zinc-900 bg-zinc-100 text-black'
+                    : 'border-zinc-400 bg-white text-black hover:bg-zinc-200'
+                }`}
+                onClick={() => {
+                  form.setValue('targetMode', 'contacts');
+                  form.setValue('categoryName', '');
+                }}
+              >
+                Select Contacts
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg border-2 p-3 text-left text-sm font-semibold transition-all ${
+                  targetMode === 'category'
+                    ? 'border-zinc-900 bg-zinc-100 text-black'
+                    : 'border-zinc-400 bg-white text-black hover:bg-zinc-200'
+                }`}
+                onClick={() => {
+                  form.setValue('targetMode', 'category');
+                  form.setValue('contactIds', []);
+                }}
+              >
+                By Category
+              </button>
             </div>
 
             {isLoading ? (
