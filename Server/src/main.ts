@@ -11,13 +11,15 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
   const apiPrefix = configService.get<string>('app.apiPrefix', { infer: true }) ?? '';
   const port = configService.get<number>('app.port', { infer: true }) ?? 5000;
+  const requestBodyLimit =
+    configService.get<string>('app.requestBodyLimit', { infer: true }) ?? '50mb';
   const corsOrigins = configService.get<string[]>('app.corsOrigins', { infer: true }) ?? [];
   const configuredTemplateImagesDir =
     configService.get<string>('media.templateImages.uploadDir', { infer: true }) ??
@@ -56,6 +58,8 @@ async function bootstrap(): Promise<void> {
     mkdirSync(templateImagesDir, { recursive: true });
   }
 
+  app.use(express.json({ limit: requestBodyLimit }));
+  app.use(express.urlencoded({ limit: requestBodyLimit, extended: true }));
   app.use(templateImagesPublicPath, express.static(templateImagesDir));
   if (existsSync(templateLibraryDir)) {
     app.use(templateLibraryPublicPath, express.static(templateLibraryDir));

@@ -400,33 +400,35 @@ export function TemplateImageManagerPanel({
                   >
                     {file.originalName}
                   </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-2 text-xs"
-                      onClick={() => void handleCopyUrl(file.publicUrl)}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                      Copy
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                      onClick={() => void handleDeleteFile(file)}
-                      disabled={isDeletingFileId === file.id}
-                    >
-                      {isDeletingFileId === file.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                      Delete
-                    </Button>
-                  </div>
+                  {!showSelectAction ? (
+                    <div className="mt-2 grid grid-cols-2 gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => void handleCopyUrl(file.publicUrl)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                        onClick={() => void handleDeleteFile(file)}
+                        disabled={isDeletingFileId === file.id}
+                      >
+                        {isDeletingFileId === file.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                        Delete
+                      </Button>
+                    </div>
+                  ) : null}
                   {showSelectAction ? (
                     <Button
                       type="button"

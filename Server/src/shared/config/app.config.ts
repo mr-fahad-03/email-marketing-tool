@@ -19,6 +19,7 @@ export const appConfig = registerAs('app', () => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 5000),
   apiPrefix: process.env.API_PREFIX ?? '',
+  requestBodyLimit: process.env.REQUEST_BODY_LIMIT ?? '50mb',
   corsOrigins: resolveCorsOrigins(
     process.env.NODE_ENV ?? 'development',
     process.env.CORS_ORIGINS ?? 'http://localhost:3000',

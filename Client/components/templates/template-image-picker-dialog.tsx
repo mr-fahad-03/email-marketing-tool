@@ -22,7 +22,7 @@ export function TemplateImagePickerDialog({
 }: TemplateImagePickerDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[96vw] max-w-6xl overflow-y-auto border-zinc-200 bg-zinc-50 p-5 text-zinc-900">
+      <DialogContent className="z-[10000] max-h-[92vh] w-[96vw] max-w-6xl overflow-y-auto border-zinc-200 bg-zinc-50 p-5 text-zinc-900">
         <DialogHeader>
           <DialogTitle>Image Manager</DialogTitle>
         </DialogHeader>

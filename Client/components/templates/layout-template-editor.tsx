@@ -3,6 +3,7 @@
 import { Eye, Laptop, Redo2, Smartphone, Undo2 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import 'grapesjs/dist/css/grapes.min.css';
+import { TemplateImagePickerDialog } from '@/components/templates/template-image-picker-dialog';
 import { renderMjmlTemplate } from '@/lib/api/templates';
 import { cn } from '@/lib/utils';
 
@@ -40,6 +41,13 @@ interface GrapesEditorInstance {
   UndoManager?: {
     undo: (all?: boolean) => void;
     redo: (all?: boolean) => void;
+  };
+  AssetManager?: {
+    add?: (asset: string | { src: string }) => unknown;
+    close?: () => void;
+  };
+  Modal?: {
+    close?: () => void;
   };
   Canvas?: {
     getBody?: () => HTMLBodyElement | null;
@@ -307,6 +315,27 @@ function fromCssUrl(input: string): string {
   return match?.[2] ?? trimmed;
 }
 
+function getAssetUrlFromElement(assetEl: Element): string {
+  const imageEl = assetEl.querySelector('img');
+  const imageSrc = imageEl?.getAttribute('src')?.trim();
+  if (imageSrc) {
+    return imageSrc;
+  }
+
+  const dataSrc =
+    assetEl.getAttribute('data-src')?.trim() ||
+    assetEl.querySelector('[data-src]')?.getAttribute('data-src')?.trim();
+  if (dataSrc) {
+    return dataSrc;
+  }
+
+  const previewEl = assetEl.querySelector('.gjs-am-preview') as HTMLElement | null;
+  const backgroundImage =
+    previewEl?.style.backgroundImage ||
+    (previewEl ? window.getComputedStyle(previewEl).backgroundImage : '');
+  return fromCssUrl(backgroundImage).trim();
+}
+
 function toCssUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) {
@@ -372,6 +401,7 @@ export function LayoutTemplateEditor({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<GrapesEditorInstance | null>(null);
   const selectedComponentRef = useRef<GrapesComponentModel | null>(null);
+  const applyImageManagerSelectionRef = useRef<(imageUrl: string) => void>(() => {});
   const onChangeRef = useRef(onChange);
   const onMjmlChangeRef = useRef(onMjmlChange);
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -387,6 +417,7 @@ export function LayoutTemplateEditor({
   const [activeDevice, setActiveDevice] = useState<'Desktop' | 'Mobile'>('Desktop');
   const [previewMode, setPreviewMode] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState<GrapesComponentModel | null>(null);
+  const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
   const [, forceSelectedComponentRefresh] = useState(0);
 
   const shellId = useMemo(() => `mjml-shell-${Math.random().toString(36).slice(2, 10)}`, []);
@@ -457,6 +488,32 @@ export function LayoutTemplateEditor({
       ...updates,
     });
   };
+
+  const applyImageManagerSelection = (imageUrl: string) => {
+    const editor = editorRef.current;
+    const component =
+      (editor?.getSelected?.() as GrapesComponentModel | null) ?? selectedComponentRef.current;
+
+    editor?.AssetManager?.add?.({ src: imageUrl });
+
+    if (component && String(component.get?.('type') ?? '') === 'mj-image') {
+      const attrs = component.getAttributes?.() ?? {};
+      component.setAttributes({
+        ...attrs,
+        src: imageUrl,
+      });
+      editor?.select?.(component);
+      setSelectedComponent(component);
+      bumpSelectedComponent();
+      keepComponentSelected(component);
+    }
+
+    editor?.AssetManager?.close?.();
+    editor?.Modal?.close?.();
+    setIsImagePickerOpen(false);
+    setTimeout(() => refreshCanvasRef.current?.(), 0);
+  };
+  applyImageManagerSelectionRef.current = applyImageManagerSelection;
 
   const updateSelectedStyle = (updates: Record<string, string>) => {
     if (!selectedComponent) {
@@ -584,6 +641,7 @@ export function LayoutTemplateEditor({
 
   useEffect(() => {
     let disposed = false;
+    let assetModalObserver: MutationObserver | null = null;
 
     async function init() {
       if (!containerRef.current || editorRef.current) {
@@ -701,7 +759,60 @@ export function LayoutTemplateEditor({
 
       refreshCanvasRef.current = ensureCanvasScroll;
 
+      const injectImageManagerButton = () => {
+        const root = containerRef.current?.ownerDocument ?? document;
+        const uploader = root.querySelector('.gjs-am-file-uploader');
+        if (uploader && !uploader.querySelector('[data-template-image-manager-button="true"]')) {
+          const button = root.createElement('button');
+          button.type = 'button';
+          button.dataset.templateImageManagerButton = 'true';
+          button.className = 'gjs-template-image-manager-button';
+          button.textContent = 'Image Manager';
+          button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            editor.AssetManager?.close?.();
+            editor.Modal?.close?.();
+            setIsImagePickerOpen(true);
+          });
+
+          uploader.insertBefore(button, uploader.firstChild);
+        }
+
+        const assetsList = root.querySelector('.gjs-am-assets') as HTMLElement | null;
+        if (
+          assetsList &&
+          assetsList.dataset.templateAssetClickApply !== 'true'
+        ) {
+          assetsList.dataset.templateAssetClickApply = 'true';
+          assetsList.addEventListener('click', (event) => {
+            const target = event.target as Element | null;
+            const assetEl = target?.closest('.gjs-am-asset');
+            if (!assetEl) {
+              return;
+            }
+
+            const assetUrl = getAssetUrlFromElement(assetEl);
+            if (!assetUrl) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            applyImageManagerSelectionRef.current(assetUrl);
+          });
+        }
+      };
+
+      assetModalObserver = new MutationObserver(() => injectImageManagerButton());
+      assetModalObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+
       editor.on('load', ensureCanvasScroll);
+      editor.on('load', injectImageManagerButton);
+      editor.on('modal:open', injectImageManagerButton);
       editor.on('update', ensureCanvasScroll);
       editor.on('component:selected', (component) => {
         if (!fullHeight) {
@@ -788,6 +899,7 @@ export function LayoutTemplateEditor({
 
     return () => {
       disposed = true;
+      assetModalObserver?.disconnect();
       if (updateTimerRef.current) {
         clearTimeout(updateTimerRef.current);
       }
@@ -1556,15 +1668,151 @@ export function LayoutTemplateEditor({
           }
 
           .mjml-shell .gjs-mdl-container {
-            background: rgb(15 23 42 / 0.18) !important;
+            background: rgb(15 23 42 / 0.32) !important;
           }
 
-          .mjml-shell .gjs-mdl-dialog,
+          .mjml-shell .gjs-mdl-dialog {
+            width: min(850px, calc(100vw - 48px)) !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            background: #ffffff !important;
+            color: #111827 !important;
+            box-shadow: 0 24px 60px rgb(15 23 42 / 0.24) !important;
+            overflow: hidden !important;
+          }
+
+          .mjml-shell .gjs-mdl-header {
+            display: flex !important;
+            align-items: center !important;
+            min-height: 48px !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+            padding: 12px 16px !important;
+            background: #ffffff !important;
+          }
+
+          .mjml-shell .gjs-mdl-title {
+            color: #0f172a !important;
+            font-size: 16px !important;
+            font-weight: 700 !important;
+          }
+
+          .mjml-shell .gjs-mdl-btn-close {
+            top: 10px !important;
+            right: 14px !important;
+            color: #94a3b8 !important;
+            opacity: 1 !important;
+          }
+
+          .mjml-shell .gjs-mdl-content {
+            padding: 16px !important;
+          }
+
           .mjml-shell .gjs-am-assets-cont,
           .mjml-shell .gjs-am-file-uploader,
           .mjml-shell .gjs-am-assets {
             background: #ffffff !important;
             color: #111827 !important;
+          }
+
+          .mjml-shell .gjs-am-add-asset {
+            display: none !important;
+          }
+
+          .mjml-shell .gjs-am-file-uploader {
+            width: 56% !important;
+            padding-right: 16px !important;
+          }
+
+          .mjml-shell .gjs-am-file-uploader > form {
+            min-height: 328px !important;
+            border: 2px dashed #0f172a !important;
+            border-radius: 8px !important;
+            background: #f8fafc !important;
+            color: #0f172a !important;
+            overflow: hidden !important;
+          }
+
+          .mjml-shell .gjs-am-file-uploader #gjs-am-title {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            height: 100% !important;
+            padding: 0 !important;
+            color: #0f172a !important;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+          }
+
+          .mjml-shell .gjs-am-file-uploader > form #gjs-am-uploadFile {
+            min-height: 328px !important;
+            padding: 0 !important;
+            cursor: pointer !important;
+          }
+
+          .mjml-shell .gjs-am-assets-cont {
+            width: 44% !important;
+            height: 368px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            padding: 10px !important;
+            overflow: hidden !important;
+          }
+
+          .mjml-shell .gjs-am-assets-header {
+            padding: 0 0 8px !important;
+            color: #475569 !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            text-transform: uppercase !important;
+          }
+
+          .mjml-shell .gjs-am-assets {
+            height: 318px !important;
+            display: block !important;
+            overflow-y: auto !important;
+          }
+
+          .mjml-shell .gjs-am-asset {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
+            width: 100% !important;
+            margin: 0 0 8px !important;
+            padding: 8px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            background: #ffffff !important;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease !important;
+          }
+
+          .mjml-shell .gjs-am-asset:hover {
+            border-color: #0b6886 !important;
+            box-shadow: 0 8px 20px rgb(15 23 42 / 0.12) !important;
+            transform: translateY(-1px) !important;
+          }
+
+          .mjml-shell .gjs-am-preview-cont {
+            width: 86px !important;
+            height: 70px !important;
+            flex: 0 0 86px !important;
+            border-radius: 6px !important;
+            background: #f1f5f9 !important;
+          }
+
+          .mjml-shell .gjs-am-meta {
+            width: auto !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            color: #0f172a !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            line-height: 1.35 !important;
+          }
+
+          .mjml-shell .gjs-am-meta > div {
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            word-break: break-word !important;
           }
 
           .mjml-shell .gjs-am-add-asset input,
@@ -1575,7 +1823,35 @@ export function LayoutTemplateEditor({
             border-color: #cbd5e1 !important;
             opacity: 1 !important;
           }
+
+          .mjml-shell .gjs-template-image-manager-button {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-height: 36px !important;
+            margin: 0 0 12px !important;
+            padding: 0 14px !important;
+            border: 1px solid #0b6886 !important;
+            border-radius: 6px !important;
+            background: #0b6886 !important;
+            color: #ffffff !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            line-height: 1 !important;
+            cursor: pointer !important;
+            opacity: 1 !important;
+          }
+
+          .mjml-shell .gjs-template-image-manager-button:hover {
+            background: #07516a !important;
+          }
         `}</style>
+
+        <TemplateImagePickerDialog
+          open={isImagePickerOpen}
+          onOpenChange={setIsImagePickerOpen}
+          onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
+        />
       </div>
     );
   }
@@ -1624,6 +1900,12 @@ export function LayoutTemplateEditor({
           color: #0f172a;
         }
       `}</style>
+
+      <TemplateImagePickerDialog
+        open={isImagePickerOpen}
+        onOpenChange={setIsImagePickerOpen}
+        onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
+      />
     </div>
   );
 }

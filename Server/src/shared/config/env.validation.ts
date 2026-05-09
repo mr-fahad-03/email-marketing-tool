@@ -6,6 +6,7 @@ export const envValidationSchema = Joi.object({
     .default('development'),
   PORT: Joi.number().port().default(5000),
   API_PREFIX: Joi.string().allow('').default(''),
+  REQUEST_BODY_LIMIT: Joi.string().default('50mb'),
   CORS_ORIGINS: Joi.string().allow('').default('http://localhost:3000'),
   MONGODB_URI: Joi.string()
     .uri({ scheme: ['mongodb', 'mongodb+srv'] })
