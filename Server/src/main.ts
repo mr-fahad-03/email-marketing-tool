@@ -35,12 +35,31 @@ async function bootstrap(): Promise<void> {
   const templateImagesDir = isAbsolute(configuredTemplateImagesDir)
     ? configuredTemplateImagesDir
     : join(process.cwd(), configuredTemplateImagesDir);
+  const configuredTemplateLibraryDir =
+    configService.get<string>('media.templateLibrary.dir', { infer: true }) ??
+    'assets/email-template-library/easy-email';
+  const configuredTemplateLibraryPublicPath =
+    configService.get<string>('media.templateLibrary.publicPath', { infer: true }) ??
+    '/template-library/easy-email';
+  const templateLibraryPublicPathCandidate = configuredTemplateLibraryPublicPath
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  const templateLibraryPublicPath = templateLibraryPublicPathCandidate
+    ? `/${templateLibraryPublicPathCandidate}`
+    : '/template-library/easy-email';
+  const templateLibraryDir = isAbsolute(configuredTemplateLibraryDir)
+    ? configuredTemplateLibraryDir
+    : join(process.cwd(), configuredTemplateLibraryDir);
 
   if (!existsSync(templateImagesDir)) {
     mkdirSync(templateImagesDir, { recursive: true });
   }
 
   app.use(templateImagesPublicPath, express.static(templateImagesDir));
+  if (existsSync(templateLibraryDir)) {
+    app.use(templateLibraryPublicPath, express.static(templateLibraryDir));
+  }
 
   app.enableCors({
     origin: corsOrigins,

@@ -4,6 +4,11 @@ export type TemplateVisibility = 'personal';
 export type TemplateDesignJson = Record<string, unknown>;
 export type TemplateCategory =
   | 'business'
+  | 'ecommerce'
+  | 'restaurant'
+  | 'other'
+  | 'holiday'
+  | 'travel'
   | 'online-store'
   | 'kitchen'
   | 'medicine'

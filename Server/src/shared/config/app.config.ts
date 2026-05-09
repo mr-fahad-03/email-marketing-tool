@@ -83,14 +83,18 @@ export const templateProvidersConfig = registerAs('templateProviders', () => ({
     appId: process.env.MJML_API_APP_ID ?? '',
     secretKey: process.env.MJML_API_SECRET_KEY ?? '',
     renderMode: process.env.MJML_RENDER_MODE ?? 'hybrid',
-    repoOwner: process.env.MJML_TEMPLATE_REPO_OWNER ?? 'mjmlio',
+    repoOwner: process.env.MJML_TEMPLATE_REPO_OWNER ?? 'Easy-Email-Pro',
     repoName: process.env.MJML_TEMPLATE_REPO_NAME ?? 'email-templates',
-    repoBranch: process.env.MJML_TEMPLATE_REPO_BRANCH ?? 'master',
+    repoBranch: process.env.MJML_TEMPLATE_REPO_BRANCH ?? 'main',
     githubToken: process.env.GITHUB_TOKEN ?? '',
   },
 }));
 
 export const mediaConfig = registerAs('media', () => ({
+  templateLibrary: {
+    dir: process.env.TEMPLATE_LIBRARY_DIR ?? 'assets/email-template-library/easy-email',
+    publicPath: process.env.TEMPLATE_LIBRARY_PUBLIC_PATH ?? '/template-library/easy-email',
+  },
   templateImages: {
     uploadDir: process.env.TEMPLATE_IMAGES_UPLOAD_DIR ?? 'uploads/template-images',
     publicPath: process.env.TEMPLATE_IMAGES_PUBLIC_PATH ?? '/uploads/template-images',

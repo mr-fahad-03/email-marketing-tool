@@ -5,6 +5,11 @@ export enum TemplateChannelType {
 
 export enum TemplateCategory {
   BUSINESS = 'business',
+  ECOMMERCE = 'ecommerce',
+  RESTAURANT = 'restaurant',
+  OTHER = 'other',
+  HOLIDAY = 'holiday',
+  TRAVEL = 'travel',
   ONLINE_STORE = 'online-store',
   KITCHEN = 'kitchen',
   MEDICINE = 'medicine',

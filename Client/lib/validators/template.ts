@@ -6,6 +6,11 @@ export const templateFormSchema = z.object({
   category: z
     .enum([
       'business',
+      'ecommerce',
+      'restaurant',
+      'other',
+      'holiday',
+      'travel',
       'online-store',
       'kitchen',
       'medicine',

@@ -8,6 +8,12 @@ import { TemplateLibraryGrid } from '@/components/templates/template-library-gri
 import { TemplatesFilters } from '@/components/templates/templates-filters';
 import { TemplatesTable } from '@/components/templates/templates-table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { HttpClientError } from '@/lib/api/errors';
 import {
   getMjmlProviderStatus,
@@ -24,7 +30,7 @@ import type {
   TemplateLayoutPreset,
 } from '@/lib/types/template';
 
-type TemplatesSection = 'all' | 'personal' | 'library';
+type TemplatesSection = 'personal' | 'library';
 type PrebuiltLayoutPreset = Exclude<TemplateLayoutPreset, 'empty'>;
 
 const PREBUILT_LAYOUT_OPTIONS: Array<{
@@ -152,11 +158,12 @@ function LayoutPresetThumbnail({ preset }: { preset: PrebuiltLayoutPreset }) {
 
 export default function TemplatesPage() {
   const router = useRouter();
-  const [activeSection, setActiveSection] = useState<TemplatesSection>('all');
+  const [activeSection, setActiveSection] = useState<TemplatesSection>('library');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeLibraryCategory, setActiveLibraryCategory] = useState('all');
 
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [showLayoutPicker, setShowLayoutPicker] = useState(false);
 
   const [allTemplates, setAllTemplates] = useState<MarketingTemplate[]>([]);
@@ -367,10 +374,12 @@ export default function TemplatesPage() {
   };
 
   const openHtmlPersonalCreatorPage = () => {
+    setIsCreateDialogOpen(false);
     router.push('/dashboard/templates/new?editor=html');
   };
 
   const openLayoutPersonalCreatorPage = (preset: PrebuiltLayoutPreset) => {
+    setIsCreateDialogOpen(false);
     router.push(`/dashboard/templates/new?editor=layout&preset=${encodeURIComponent(preset)}`);
   };
 
@@ -378,8 +387,9 @@ export default function TemplatesPage() {
     router.push(`/dashboard/templates/${encodeURIComponent(template.id)}`);
   };
 
-  const goToPersonalTemplatesSection = () => {
-    setActiveSection('personal');
+  const openCreateTemplateDialog = () => {
+    setShowLayoutPicker(false);
+    setIsCreateDialogOpen(true);
   };
 
   return (
@@ -393,10 +403,10 @@ export default function TemplatesPage() {
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
-            onClick={goToPersonalTemplatesSection}
+            onClick={openCreateTemplateDialog}
           >
             <PlusCircle className="h-4 w-4" />
-            Add template
+            Add Template
           </button>
           <button
             type="button"
@@ -410,17 +420,6 @@ export default function TemplatesPage() {
       </div>
 
       <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-900 p-1">
-        <button
-          type="button"
-          className={`rounded px-3 py-1.5 text-sm ${
-            activeSection === 'all'
-              ? 'bg-zinc-100 text-zinc-900'
-              : 'text-zinc-300 hover:bg-zinc-800'
-          }`}
-          onClick={() => setActiveSection('all')}
-        >
-          All
-        </button>
         <button
           type="button"
           className={`rounded px-3 py-1.5 text-sm ${
@@ -445,10 +444,10 @@ export default function TemplatesPage() {
         </button>
       </div>
 
-      {activeSection === 'all' ? (
+      {activeSection === 'personal' ? (
         <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
           <CardHeader className="space-y-4">
-            <CardTitle className="text-base">All Templates</CardTitle>
+            <CardTitle className="text-base">Personal Templates</CardTitle>
             <TemplatesFilters
               search={search}
               type="all"
@@ -467,12 +466,20 @@ export default function TemplatesPage() {
         </Card>
       ) : null}
 
-      {activeSection === 'personal' ? (
-        <Card className="border-slate-200 bg-white text-slate-900">
-          <CardHeader>
-            <CardTitle className="text-base">Personal</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open) {
+            setShowLayoutPicker(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl border-slate-200 bg-white text-slate-900">
+          <DialogHeader>
+            <DialogTitle>New Template</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <button
                 type="button"
@@ -516,9 +523,9 @@ export default function TemplatesPage() {
                 </div>
               </div>
             ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {activeSection === 'library' ? (
         <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">

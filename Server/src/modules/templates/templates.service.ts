@@ -1,7 +1,9 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { Model, Types } from 'mongoose';
+import { isAbsolute, join } from 'path';
 import { AppException } from '../../common/exceptions/app.exception';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { Contact } from '../contacts/schemas/contact.schema';
@@ -773,6 +775,16 @@ export class TemplatesService {
       return this.mjmlTemplateListCache.items;
     }
 
+    const localTemplates = this.getLocalTemplateList();
+    if (localTemplates.length > 0) {
+      this.mjmlTemplateListCache = {
+        expiresAt: now + this.templateListCacheTtlMs,
+        items: localTemplates,
+      };
+
+      return localTemplates;
+    }
+
     const settings = this.getMjmlSettings();
     const tree = await this.fetchRepoTree(settings);
     const thumbnailPaths = new Set(
@@ -840,6 +852,58 @@ export class TemplatesService {
     };
   }
 
+  private getLocalTemplateList(): MjmlTemplateCatalogEntry[] {
+    const rootDir = this.getLocalTemplateLibraryDir();
+    if (!existsSync(rootDir)) {
+      return [];
+    }
+
+    return readdirSync(rootDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .sort((a, b) => this.compareTemplateFolderNames(a.name, b.name))
+      .map((entry) => this.mapLocalTemplateEntry(rootDir, entry.name))
+      .filter((item): item is MjmlTemplateCatalogEntry => Boolean(item));
+  }
+
+  private mapLocalTemplateEntry(rootDir: string, folderName: string): MjmlTemplateCatalogEntry | null {
+    const mjmlPath = join(rootDir, folderName, 'index.mjml');
+    if (!existsSync(mjmlPath)) {
+      return null;
+    }
+
+    const mjml = readFileSync(mjmlPath, 'utf8');
+    const sourcePath = `${folderName}/index.mjml`;
+    const templateName = this.inferLocalTemplateName(mjml, folderName);
+    const thumbnail = this.resolveLocalThumbnailUrl(rootDir, folderName);
+
+    return {
+      provider: 'mjml',
+      templateId: this.encodeTemplateId(sourcePath),
+      sourcePath,
+      name: templateName,
+      thumbnail,
+      categoryHints: [this.inferPrimaryLocalCategory(`${folderName} ${templateName} ${mjml}`)],
+    };
+  }
+
+  private resolveLocalThumbnailUrl(rootDir: string, folderName: string): string {
+    const publicPath = this.getLocalTemplateLibraryPublicPath();
+    const candidates = ['thumbnail.png', 'thumbnail.jpg', 'thumbnail.jpeg', 'thumbnail.webp'];
+    const match = candidates.find((candidate) => existsSync(join(rootDir, folderName, candidate)));
+
+    return match ? `${publicPath}/${folderName}/${match}` : '';
+  }
+
+  private inferLocalTemplateName(mjml: string, folderName: string): string {
+    const altMatch = mjml.match(/alt="([^"]{3,80})"/i);
+    const altText = altMatch?.[1]?.trim();
+    if (altText && !/^logo$/i.test(altText)) {
+      return `${this.toTemplateName(folderName)} - ${altText}`;
+    }
+
+    return this.toTemplateName(folderName);
+  }
+
   private resolveThumbnailUrl(
     sourcePath: string,
     baseName: string,
@@ -869,6 +933,11 @@ export class TemplatesService {
   }
 
   private async fetchRawTemplate(sourcePath: string): Promise<string> {
+    const localPath = join(this.getLocalTemplateLibraryDir(), sourcePath);
+    if (existsSync(localPath)) {
+      return readFileSync(localPath, 'utf8');
+    }
+
     const settings = this.getMjmlSettings();
     const response = await fetch(this.toRawGithubUrl(sourcePath, settings), {
       method: 'GET',
@@ -1045,23 +1114,26 @@ export class TemplatesService {
       }
     }
 
-    const category = query.category?.trim().toLowerCase();
+    const category = this.normalizeLibraryCategory(query.category?.trim().toLowerCase() ?? '');
     if (!category || category === 'all') {
       return true;
     }
 
-    return item.categoryHints.includes(category);
+    return this.normalizeLibraryCategory(item.categoryHints[0] ?? '') === category;
+  }
+
+  private inferPrimaryLocalCategory(source: string): string {
+    return this.normalizeLibraryCategory(this.inferCategoryHints(source)[0] ?? 'other');
   }
 
   private inferCategoryHints(source: string): string[] {
-    const haystack = source.toLowerCase();
+    const haystack = source.replace(/https?:\/\/\S+/gi, ' ').toLowerCase();
     const keywordMap: Record<string, string[]> = {
       business: ['business', 'corporate', 'agency', 'consulting', 'finance'],
-      'online-store': ['ecommerce', 'e-commerce', 'store', 'shop', 'retail', 'marketplace'],
-      kitchen: ['food', 'restaurant', 'kitchen', 'cafe', 'bakery', 'catering'],
-      medicine: ['health', 'healthcare', 'medical', 'medicine', 'clinic', 'doctor', 'hospital'],
+      ecommerce: ['ecommerce', 'e-commerce', 'store', 'retail', 'marketplace', 'fashion', 'jewelry', 'watch', 'product', 'shop now'],
+      restaurant: ['food', 'restaurant', 'kitchen', 'cafe', 'bakery', 'catering', 'burger', 'dinner', 'cocktail', 'menu'],
       education: ['education', 'school', 'course', 'academy', 'learning', 'university'],
-      holidays: [
+      holiday: [
         'holiday',
         'christmas',
         'new year',
@@ -1072,14 +1144,60 @@ export class TemplatesService {
         'memorial day',
         'fathers day',
       ],
-      tourism: ['travel', 'tourism', 'hotel', 'trip', 'vacation', 'flight', 'destination'],
+      travel: ['travel', 'tourism', 'hotel', 'trip', 'vacation', 'flight', 'destination'],
+      other: ['general', 'newsletter', 'update', 'announcement', 'health', 'healthcare', 'medical', 'medicine', 'clinic', 'doctor', 'hospital', 'wellness'],
     };
 
-    const matches = Object.entries(keywordMap)
-      .filter(([, keywords]) => keywords.some((keyword) => haystack.includes(keyword)))
-      .map(([category]) => category);
+    for (const [category, keywords] of Object.entries(keywordMap)) {
+      if (keywords.some((keyword) => haystack.includes(keyword))) {
+        return [category];
+      }
+    }
 
-    return matches.length > 0 ? matches : ['general'];
+    const templateNumberMatch = haystack.match(/template\s*([0-9]+)/i);
+    if (templateNumberMatch) {
+      const templateNumber = Number(templateNumberMatch[1]);
+      if (Number.isFinite(templateNumber) && templateNumber > 0) {
+        const fallbackCategories = [
+          'travel',
+          'business',
+          'restaurant',
+          'education',
+          'other',
+          'holiday',
+          'ecommerce',
+        ] as const;
+
+        return [fallbackCategories[(templateNumber - 1) % fallbackCategories.length]];
+      }
+    }
+
+    return ['other'];
+  }
+
+  private normalizeLibraryCategory(category: string): string {
+    const normalized = category.trim().toLowerCase();
+    if (!normalized) {
+      return '';
+    }
+
+    if (normalized === 'tourism') {
+      return 'travel';
+    }
+    if (normalized === 'online-store') {
+      return 'ecommerce';
+    }
+    if (normalized === 'kitchen') {
+      return 'restaurant';
+    }
+    if (normalized === 'general' || normalized === 'medicine') {
+      return 'other';
+    }
+    if (normalized === 'holidays') {
+      return 'holiday';
+    }
+
+    return normalized;
   }
 
   private toTemplateName(value: string): string {
@@ -1092,6 +1210,38 @@ export class TemplatesService {
 
   private encodeTemplateId(sourcePath: string): string {
     return Buffer.from(sourcePath, 'utf8').toString('base64url');
+  }
+
+  private getLocalTemplateLibraryDir(): string {
+    const configured =
+      this.configService.get<string>('media.templateLibrary.dir', { infer: true }) ??
+      'assets/email-template-library/easy-email';
+
+    return isAbsolute(configured) ? configured : join(process.cwd(), configured);
+  }
+
+  private getLocalTemplateLibraryPublicPath(): string {
+    const configured =
+      this.configService.get<string>('media.templateLibrary.publicPath', { infer: true }) ??
+      '/template-library/easy-email';
+    const normalized = configured.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+
+    return normalized ? `/${normalized}` : '/template-library/easy-email';
+  }
+
+  private compareTemplateFolderNames(a: string, b: string): number {
+    const numberA = this.getTemplateFolderNumber(a);
+    const numberB = this.getTemplateFolderNumber(b);
+    if (numberA !== numberB) {
+      return numberA - numberB;
+    }
+
+    return a.localeCompare(b);
+  }
+
+  private getTemplateFolderNumber(value: string): number {
+    const match = value.match(/(\d+)/);
+    return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
   }
 
   private toRawGithubUrl(sourcePath: string, settings: MjmlProviderSettings): string {
@@ -1134,9 +1284,9 @@ export class TemplatesService {
       appId: mjml.appId?.trim() ?? '',
       secretKey: mjml.secretKey?.trim() ?? '',
       renderMode: this.toRenderMode(mjml.renderMode),
-      repoOwner: mjml.repoOwner?.trim() || 'mjmlio',
+      repoOwner: mjml.repoOwner?.trim() || 'Easy-Email-Pro',
       repoName: mjml.repoName?.trim() || 'email-templates',
-      repoBranch: mjml.repoBranch?.trim() || 'master',
+      repoBranch: mjml.repoBranch?.trim() || 'main',
       githubToken: mjml.githubToken?.trim() ?? '',
     };
   }

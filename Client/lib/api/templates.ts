@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { env } from '@/lib/config/env';
 import { extractTemplateVariablesFromParts } from '@/lib/template-utils';
 import type {
   TemplateEditorType,
@@ -161,6 +162,18 @@ function buildPayload(
   };
 }
 
+function normalizeAssetUrl(value: string): string {
+  if (!value || /^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  if (value.startsWith('/')) {
+    return `${env.apiUrl}${value}`;
+  }
+
+  return value;
+}
+
 export async function getTemplates(filters: TemplatesQueryFilters = {}): Promise<TemplatesListResult> {
   const limit = filters.limit ?? 10;
 
@@ -287,7 +300,7 @@ function normalizeProviderTemplateListItem(input: unknown): ProviderTemplateList
     provider: 'mjml',
     templateId: getString(record, ['templateId']) ?? '',
     name: getString(record, ['name']) ?? '',
-    thumbnail: getString(record, ['thumbnail']) ?? '',
+    thumbnail: normalizeAssetUrl(getString(record, ['thumbnail']) ?? ''),
     categoryHints: toStringArray(record.categoryHints),
   };
 }

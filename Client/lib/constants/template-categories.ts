@@ -1,11 +1,16 @@
 import type { TemplateCategory } from '@/lib/types/template';
 
 export const TEMPLATE_CATEGORY_OPTIONS: Array<{ value: TemplateCategory; label: string }> = [
+  { value: 'other', label: 'Other' },
+  { value: 'holiday', label: 'Holiday' },
+  { value: 'ecommerce', label: 'Ecommerce' },
+  { value: 'travel', label: 'Travel' },
   { value: 'business', label: 'Business' },
+  { value: 'restaurant', label: 'Restaurant' },
+  { value: 'education', label: 'Education' },
   { value: 'online-store', label: 'Online Store' },
   { value: 'kitchen', label: 'Kitchen' },
   { value: 'medicine', label: 'Medicine' },
-  { value: 'education', label: 'Education' },
   { value: 'general', label: 'General' },
   { value: 'holidays', label: 'Holidays' },
   { value: 'tourism', label: 'Tourism' },
@@ -17,9 +22,13 @@ export const TEMPLATE_CATEGORY_OPTIONS: Array<{ value: TemplateCategory; label: 
 
 export const TEMPLATE_LIBRARY_CATEGORY_OPTIONS = TEMPLATE_CATEGORY_OPTIONS.filter((option) =>
   [
-    'online-store',
-    'general',
-    'holidays',
+    'other',
+    'holiday',
+    'ecommerce',
+    'travel',
+    'business',
+    'restaurant',
+    'education',
   ].includes(option.value),
 );
 

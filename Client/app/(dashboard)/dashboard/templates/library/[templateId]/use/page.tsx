@@ -37,6 +37,11 @@ function inferCategoryFromHints(hints: string[]): TemplateCategory {
   const first = hints[0];
   if (
     first === 'business' ||
+    first === 'ecommerce' ||
+    first === 'restaurant' ||
+    first === 'other' ||
+    first === 'holiday' ||
+    first === 'travel' ||
     first === 'online-store' ||
     first === 'kitchen' ||
     first === 'medicine' ||
