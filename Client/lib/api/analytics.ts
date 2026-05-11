@@ -52,6 +52,15 @@ function normalizeRate(value: number): number {
   return Number(value.toFixed(2));
 }
 
+function normalizeRatePercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const normalized = value <= 1 ? value * 100 : value;
+  return Number(normalized.toFixed(2));
+}
+
 function computeRate(numerator: number, denominator: number): number {
   if (denominator <= 0) {
     return 0;
@@ -61,12 +70,43 @@ function computeRate(numerator: number, denominator: number): number {
 }
 
 function parseStats(record: Record<string, unknown>): CampaignStatMetrics {
-  const sent = getNumber(record, ['sent', 'totalSent']) ?? 0;
-  const delivered = getNumber(record, ['delivered', 'totalDelivered']) ?? 0;
-  const opens = getNumber(record, ['opens', 'totalOpens']) ?? 0;
-  const clicks = getNumber(record, ['clicks', 'totalClicks']) ?? 0;
-  const bounced = getNumber(record, ['bounced', 'totalBounced']) ?? 0;
-  const failed = getNumber(record, ['failed', 'totalFailed']) ?? 0;
+  const summaryRecord = getRecord(record.summary);
+  const recipientsRecord = getRecord(summaryRecord?.recipients);
+  const engagementRecord = getRecord(summaryRecord?.engagement);
+  const ratesRecord = getRecord(summaryRecord?.rates);
+  const deliveryRecord = getRecord(record.delivery);
+
+  const sent =
+    getNumber(record, ['sent', 'totalSent']) ??
+    getNumber(recipientsRecord ?? {}, ['sent']) ??
+    0;
+  const delivered =
+    getNumber(record, ['delivered', 'totalDelivered']) ??
+    getNumber(deliveryRecord ?? {}, ['delivered']) ??
+    0;
+  const opens =
+    getNumber(record, ['opens', 'totalOpens']) ??
+    getNumber(engagementRecord ?? {}, ['opens']) ??
+    0;
+  const clicks =
+    getNumber(record, ['clicks', 'totalClicks']) ??
+    getNumber(engagementRecord ?? {}, ['clicks']) ??
+    0;
+  const bounced =
+    getNumber(record, ['bounced', 'totalBounced']) ??
+    getNumber(deliveryRecord ?? {}, ['bounced']) ??
+    0;
+  const failed =
+    getNumber(record, ['failed', 'totalFailed']) ??
+    getNumber(recipientsRecord ?? {}, ['failed']) ??
+    0;
+
+  const rawOpenRate =
+    getNumber(record, ['openRate']) ?? getNumber(ratesRecord ?? {}, ['openRate']);
+  const rawClickRate =
+    getNumber(record, ['clickRate']) ?? getNumber(ratesRecord ?? {}, ['clickRate']);
+  const rawDeliveryRate =
+    getNumber(record, ['deliveryRate']) ?? getNumber(ratesRecord ?? {}, ['deliveryRate']);
 
   return {
     sent,
@@ -75,9 +115,18 @@ function parseStats(record: Record<string, unknown>): CampaignStatMetrics {
     clicks,
     bounced,
     failed,
-    openRate: getNumber(record, ['openRate']) ?? computeRate(opens, delivered || sent),
-    clickRate: getNumber(record, ['clickRate']) ?? computeRate(clicks, delivered || sent),
-    deliveryRate: getNumber(record, ['deliveryRate']) ?? computeRate(delivered, sent),
+    openRate:
+      rawOpenRate === undefined
+        ? computeRate(opens, delivered || sent)
+        : normalizeRatePercent(rawOpenRate),
+    clickRate:
+      rawClickRate === undefined
+        ? computeRate(clicks, delivered || sent)
+        : normalizeRatePercent(rawClickRate),
+    deliveryRate:
+      rawDeliveryRate === undefined
+        ? computeRate(delivered, sent)
+        : normalizeRatePercent(rawDeliveryRate),
   };
 }
 
@@ -138,12 +187,16 @@ function parseSenderPerformance(payload: unknown): SenderPerformanceMetric[] {
 
 function parseDelivery(record: Record<string, unknown>, stats: CampaignStatMetrics): DeliveryBreakdown {
   const deliveryRecord = getRecord(record.delivery) ?? record;
+  const summaryRecord = getRecord(record.summary);
+  const recipientsRecord = getRecord(summaryRecord?.recipients);
 
   return {
     delivered: getNumber(deliveryRecord, ['delivered']) ?? stats.delivered,
     bounced: getNumber(deliveryRecord, ['bounced']) ?? stats.bounced,
     failed: getNumber(deliveryRecord, ['failed']) ?? stats.failed,
-    pending: getNumber(deliveryRecord, ['pending']) ?? Math.max(stats.sent - stats.delivered - stats.failed, 0),
+    pending:
+      getNumber(deliveryRecord, ['pending']) ??
+      Math.max((getNumber(recipientsRecord ?? {}, ['queued']) ?? 0), 0),
   };
 }
 
@@ -171,12 +224,12 @@ function normalizeCampaignAnalytics(payload: unknown, fallbackCampaignId: string
   };
 }
 
-export async function getCampaignAnalytics(campaignId: string): Promise<CampaignAnalytics> {
+export async function getCampaignAnalytics(campaignIdentifier: string): Promise<CampaignAnalytics> {
   const payload = await apiRequest<unknown>({
     method: 'GET',
-    url: `/analytics/campaigns/${campaignId}`,
+    url: `/analytics/campaigns/${encodeURIComponent(campaignIdentifier)}`,
   });
 
-  return normalizeCampaignAnalytics(payload, campaignId);
+  return normalizeCampaignAnalytics(payload, campaignIdentifier);
 }
 

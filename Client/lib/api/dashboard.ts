@@ -1,6 +1,8 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { fetchAllPages } from '@/lib/api/pagination';
 import { getCampaigns } from '@/lib/api/campaigns';
 import { getContacts } from '@/lib/api/contacts';
+import type { Campaign } from '@/lib/types/campaign';
 import type {
   DashboardActivityItem,
   DashboardOverview,
@@ -210,35 +212,74 @@ async function getRecentHistory(limit = 5): Promise<Record<string, unknown>[]> {
   return getHistoryItems(payload);
 }
 
-export async function getDashboardTotals(): Promise<DashboardTotals> {
-  const [contacts, campaigns, emailSent, whatsappSent] = await Promise.all([
-    getContacts({ page: 1, limit: 1 }),
-    getCampaigns({ page: 1, limit: 1 }),
-    getHistoryCount({ channel: 'email', eventType: 'sent' }),
-    getHistoryCount({ channel: 'whatsapp', eventType: 'sent' }),
-  ]);
+type CampaignStatsSnapshot = {
+  totalCampaigns: number;
+  emailSent: number;
+  emailOpened: number;
+  emailClicked: number;
+  emailFailed: number;
+  whatsappSent: number;
+  whatsappDeliveredOrRead: number;
+};
 
-  return {
-    totalContacts: contacts.pagination.total,
-    totalCampaigns: campaigns.pagination.total,
-    totalEmailsSent: emailSent,
-    totalWhatsAppMessages: whatsappSent,
-  };
+function toSafeNumber(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return value as number;
 }
 
-export async function getDashboardQuickStats(): Promise<DashboardQuickStat[]> {
-  const [emailSent, emailOpened, emailClicked, emailFailed, whatsappSent, whatsappDelivered] =
-    await Promise.all([
-      getHistoryCount({ channel: 'email', eventType: 'sent' }),
-      getHistoryCount({ channel: 'email', eventType: 'open,opened' }),
-      getHistoryCount({ channel: 'email', eventType: 'click,clicked' }),
-      getHistoryCount({
-        channel: 'email',
-        eventType: 'failed,bounced,hard_bounce,permanent_failure',
-      }),
-      getHistoryCount({ channel: 'whatsapp', eventType: 'sent' }),
-      getHistoryCount({ channel: 'whatsapp', eventType: 'delivered,read' }),
-    ]);
+async function getCampaignStatsSnapshot(): Promise<CampaignStatsSnapshot> {
+  const campaigns = await fetchAllPages<Campaign>(
+    async (page, limit) => getCampaigns({ page, limit }),
+    { pageLimit: 100, maxPages: 1000 },
+  );
+
+  return campaigns.reduce<CampaignStatsSnapshot>(
+    (acc, campaign) => {
+      acc.totalCampaigns += 1;
+
+      const stats = campaign.stats;
+      if (!stats) {
+        return acc;
+      }
+
+      if (campaign.channel === 'email') {
+        acc.emailSent += toSafeNumber(stats.sentRecipients);
+        acc.emailOpened += toSafeNumber(stats.openCount);
+        acc.emailClicked += toSafeNumber(stats.clickCount);
+        acc.emailFailed += toSafeNumber(stats.failedRecipients);
+      } else {
+        acc.whatsappSent +=
+          toSafeNumber(stats.whatsappSentCount) || toSafeNumber(stats.sentRecipients);
+        acc.whatsappDeliveredOrRead += Math.max(
+          toSafeNumber(stats.whatsappDeliveredCount),
+          toSafeNumber(stats.whatsappReadCount),
+        );
+      }
+
+      return acc;
+    },
+    {
+      totalCampaigns: 0,
+      emailSent: 0,
+      emailOpened: 0,
+      emailClicked: 0,
+      emailFailed: 0,
+      whatsappSent: 0,
+      whatsappDeliveredOrRead: 0,
+    },
+  );
+}
+
+function toDashboardQuickStats(snapshot: CampaignStatsSnapshot): DashboardQuickStat[] {
+  const emailSent = snapshot.emailSent;
+  const emailOpened = snapshot.emailOpened;
+  const emailClicked = snapshot.emailClicked;
+  const emailFailed = snapshot.emailFailed;
+  const whatsappSent = snapshot.whatsappSent;
+  const whatsappDelivered = snapshot.whatsappDeliveredOrRead;
 
   return [
     {
@@ -268,6 +309,25 @@ export async function getDashboardQuickStats(): Promise<DashboardQuickStat[]> {
   ];
 }
 
+export async function getDashboardTotals(): Promise<DashboardTotals> {
+  const [contacts, snapshot] = await Promise.all([
+    getContacts({ page: 1, limit: 1 }),
+    getCampaignStatsSnapshot(),
+  ]);
+
+  return {
+    totalContacts: contacts.pagination.total,
+    totalCampaigns: snapshot.totalCampaigns,
+    totalEmailsSent: snapshot.emailSent,
+    totalWhatsAppMessages: snapshot.whatsappSent,
+  };
+}
+
+export async function getDashboardQuickStats(): Promise<DashboardQuickStat[]> {
+  const snapshot = await getCampaignStatsSnapshot();
+  return toDashboardQuickStats(snapshot);
+}
+
 export async function getDashboardRecentActivity(): Promise<DashboardActivityItem[]> {
   const events = await getRecentHistory(5);
 
@@ -289,11 +349,20 @@ export async function getDashboardRecentActivity(): Promise<DashboardActivityIte
 }
 
 export async function getDashboardOverview(): Promise<DashboardOverview> {
-  const [totals, quickStats, recentActivity] = await Promise.all([
-    getDashboardTotals(),
-    getDashboardQuickStats(),
+  const [contacts, snapshot, recentActivity] = await Promise.all([
+    getContacts({ page: 1, limit: 1 }),
+    getCampaignStatsSnapshot(),
     getDashboardRecentActivity(),
   ]);
+
+  const totals: DashboardTotals = {
+    totalContacts: contacts.pagination.total,
+    totalCampaigns: snapshot.totalCampaigns,
+    totalEmailsSent: snapshot.emailSent,
+    totalWhatsAppMessages: snapshot.whatsappSent,
+  };
+
+  const quickStats = toDashboardQuickStats(snapshot);
 
   return {
     totals,

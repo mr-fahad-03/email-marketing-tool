@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import {
+  CampaignRecipient,
+  CampaignRecipientSchema,
+} from '../campaigns/schemas/campaign-recipient.schema';
 import { Campaign, CampaignSchema } from '../campaigns/schemas/campaign.schema';
 import { SendEvent, SendEventSchema } from '../email/schemas/send-event.schema';
 import {
@@ -22,6 +26,7 @@ import { AnalyticsService } from './analytics.service';
     WorkspacesModule,
     MongooseModule.forFeature([
       { name: Campaign.name, schema: CampaignSchema },
+      { name: CampaignRecipient.name, schema: CampaignRecipientSchema },
       { name: SenderAccount.name, schema: SenderAccountSchema },
       { name: SendEvent.name, schema: SendEventSchema },
       { name: TrackingEvent.name, schema: TrackingEventSchema },

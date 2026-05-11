@@ -148,13 +148,13 @@ function parsePagination(record: Record<string, unknown>, fallbackLimit: number)
 function toEventTypeQueryValue(filter: HistoryEventTypeFilter): string | undefined {
   switch (filter) {
     case 'sent':
-      return 'sent';
+      return 'send_success,whatsapp_status_sent';
     case 'opened':
-      return 'opened,open';
+      return 'open';
     case 'clicked':
-      return 'clicked,click';
+      return 'click';
     case 'failed':
-      return 'failed,bounce,bounced,hard_bounce,permanent_failure';
+      return 'send_failed_temporary,send_failed_permanent,whatsapp_status_failed,failed';
     case 'all':
     default:
       return undefined;

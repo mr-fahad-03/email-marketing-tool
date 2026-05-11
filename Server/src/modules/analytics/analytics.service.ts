@@ -5,7 +5,8 @@ import { EventQueryFiltersDto } from '../../common/dto/event-query-filters.dto';
 import { AppException } from '../../common/exceptions/app.exception';
 import { AuthUser } from '../../common/types/auth-user.type';
 import { CampaignChannel } from '../campaigns/constants/campaign.enums';
-import { Campaign } from '../campaigns/schemas/campaign.schema';
+import { CampaignRecipient } from '../campaigns/schemas/campaign-recipient.schema';
+import { Campaign, CampaignDocument } from '../campaigns/schemas/campaign.schema';
 import { EmailSendEventType } from '../email/constants/email.enums';
 import { SendEvent } from '../email/schemas/send-event.schema';
 import { SenderAccount } from '../sender-accounts/schemas/sender-account.schema';
@@ -18,6 +19,8 @@ export class AnalyticsService {
   constructor(
     @InjectModel(Campaign.name)
     private readonly campaignModel: Model<Campaign>,
+    @InjectModel(CampaignRecipient.name)
+    private readonly campaignRecipientModel: Model<CampaignRecipient>,
     @InjectModel(SenderAccount.name)
     private readonly senderAccountModel: Model<SenderAccount>,
     @InjectModel(SendEvent.name)
@@ -30,24 +33,17 @@ export class AnalyticsService {
   ) {}
 
   async getCampaignAnalytics(
-    campaignId: string,
+    campaignIdentifier: string,
     filters: EventQueryFiltersDto,
     authUser: AuthUser,
   ): Promise<Record<string, unknown>> {
     const workspaceId = await this.resolveWorkspaceId(authUser);
     const workspaceObjectId = this.toObjectId(workspaceId, 'INVALID_WORKSPACE_ID');
-    const campaignObjectId = this.toObjectId(campaignId, 'INVALID_CAMPAIGN_ID');
-
-    const campaign = await this.campaignModel
-      .findOne({
-        _id: campaignObjectId,
-        workspaceId: workspaceObjectId,
-      })
-      .exec();
-
-    if (!campaign) {
-      throw new AppException(HttpStatus.NOT_FOUND, 'CAMPAIGN_NOT_FOUND', 'Campaign not found');
-    }
+    const campaign = await this.findOwnedCampaignByIdentifier(
+      campaignIdentifier,
+      workspaceObjectId,
+    );
+    const campaignObjectId = this.toObjectId(campaign.id, 'INVALID_CAMPAIGN_ID');
 
     const sendEventMatch = this.buildSendEventMatch({
       workspaceId: workspaceObjectId,
@@ -219,15 +215,51 @@ export class AnalyticsService {
           );
 
     const sendSuccess = sendEventAgg.eventBreakdown[EmailSendEventType.SEND_SUCCESS] ?? 0;
+    const totalSent = campaign.stats?.sentRecipients ?? 0;
+    const totalFailed = campaign.stats?.failedRecipients ?? 0;
+    const totalRecipients = campaign.stats?.totalRecipients ?? 0;
+    const totalOpens = campaign.stats?.openCount ?? 0;
+    const totalClicks = campaign.stats?.clickCount ?? 0;
+
+    const deliveredCount =
+      campaign.channel === CampaignChannel.WHATSAPP
+        ? campaign.stats?.whatsappDeliveredCount ?? 0
+        : totalSent;
+    const bouncedCount = sendEventAgg.eventBreakdown[EmailSendEventType.SEND_FAILED_TEMPORARY] ?? 0;
+    const pendingCount = Math.max(totalRecipients - totalSent - totalFailed, 0);
 
     const openRate = this.safeDivide(campaign.stats?.uniqueOpenCount ?? 0, sendSuccess);
     const clickRate = this.safeDivide(campaign.stats?.uniqueClickCount ?? 0, sendSuccess);
-    const deliveryRate = this.safeDivide(webhookAgg.deliveredCount, webhookAgg.sentCount);
+    const deliveryRate =
+      campaign.channel === CampaignChannel.WHATSAPP
+        ? this.safeDivide(webhookAgg.deliveredCount, Math.max(webhookAgg.sentCount, 1))
+        : this.safeDivide(totalSent, Math.max(totalRecipients, 1));
     const readRate = this.safeDivide(webhookAgg.readCount, webhookAgg.deliveredCount);
-    const failureRate = this.safeDivide(
-      campaign.stats?.failedRecipients ?? 0,
-      campaign.stats?.totalRecipients ?? 0,
-    );
+    const failureRate = this.safeDivide(totalFailed, totalRecipients);
+
+    const timeline = await this.buildCampaignTimeline({
+      campaign,
+      sendEventMatch,
+      trackingMatch,
+    });
+
+    const senderPerformance = await this.buildCampaignSenderPerformance({
+      campaign,
+      sendEventMatch,
+      trackingMatch,
+    });
+
+    const stats = {
+      sent: totalSent,
+      delivered: deliveredCount,
+      opens: totalOpens,
+      clicks: totalClicks,
+      bounced: bouncedCount,
+      failed: totalFailed,
+      openRate: this.toPercent(openRate),
+      clickRate: this.toPercent(clickRate),
+      deliveryRate: this.toPercent(deliveryRate),
+    };
 
     return {
       campaign: {
@@ -267,6 +299,15 @@ export class AnalyticsService {
           failureRate,
         },
       },
+      stats,
+      timeline,
+      senderPerformance,
+      delivery: {
+        delivered: deliveredCount,
+        bounced: bouncedCount,
+        failed: totalFailed,
+        pending: pendingCount,
+      },
       filteredEventCounts: {
         sendEvents: sendEventAgg.totalEvents,
         trackingEvents: trackingAgg.totalEvents,
@@ -293,6 +334,328 @@ export class AnalyticsService {
       ),
       filterContext: this.buildFilterContext(filters, campaign.id),
     };
+  }
+
+  private async buildCampaignTimeline(input: {
+    campaign: CampaignDocument;
+    sendEventMatch: Record<string, unknown>;
+    trackingMatch: Record<string, unknown>;
+  }): Promise<Array<{ label: string; sent: number; delivered: number; opens: number; clicks: number }>> {
+    const isEmailCampaign = input.campaign.channel === CampaignChannel.EMAIL;
+    const sentEventType = isEmailCampaign
+      ? EmailSendEventType.SEND_SUCCESS
+      : EmailSendEventType.WHATSAPP_STATUS_SENT;
+    const deliveredEventType = isEmailCampaign
+      ? EmailSendEventType.SEND_SUCCESS
+      : EmailSendEventType.WHATSAPP_STATUS_DELIVERED;
+
+    const sendTimelineRows = await this.sendEventModel
+      .aggregate<{ label: string; sent: number; delivered: number }>([
+        { $match: input.sendEventMatch },
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: '%Y-%m-%d',
+                date: '$createdAt',
+                timezone: 'UTC',
+              },
+            },
+            sent: {
+              $sum: {
+                $cond: [{ $eq: ['$eventType', sentEventType] }, 1, 0],
+              },
+            },
+            delivered: {
+              $sum: {
+                $cond: [{ $eq: ['$eventType', deliveredEventType] }, 1, 0],
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            label: '$_id',
+            sent: 1,
+            delivered: 1,
+          },
+        },
+        { $sort: { label: 1 } },
+      ])
+      .exec();
+
+    const timelineByLabel = new Map<
+      string,
+      { label: string; sent: number; delivered: number; opens: number; clicks: number }
+    >();
+
+    for (const row of sendTimelineRows) {
+      timelineByLabel.set(row.label, {
+        label: row.label,
+        sent: row.sent,
+        delivered: row.delivered,
+        opens: 0,
+        clicks: 0,
+      });
+    }
+
+    if (isEmailCampaign) {
+      const trackingTimelineRows = await this.trackingEventModel
+        .aggregate<{ label: string; opens: number; clicks: number }>([
+          { $match: input.trackingMatch },
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  format: '%Y-%m-%d',
+                  date: '$createdAt',
+                  timezone: 'UTC',
+                },
+              },
+              opens: {
+                $sum: {
+                  $cond: [{ $eq: ['$eventType', 'open'] }, 1, 0],
+                },
+              },
+              clicks: {
+                $sum: {
+                  $cond: [{ $eq: ['$eventType', 'click'] }, 1, 0],
+                },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              label: '$_id',
+              opens: 1,
+              clicks: 1,
+            },
+          },
+          { $sort: { label: 1 } },
+        ])
+        .exec();
+
+      for (const row of trackingTimelineRows) {
+        const existing = timelineByLabel.get(row.label);
+        if (existing) {
+          existing.opens = row.opens;
+          existing.clicks = row.clicks;
+          continue;
+        }
+
+        timelineByLabel.set(row.label, {
+          label: row.label,
+          sent: 0,
+          delivered: 0,
+          opens: row.opens,
+          clicks: row.clicks,
+        });
+      }
+    }
+
+    const timeline = Array.from(timelineByLabel.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+
+    if (timeline.length) {
+      return timeline;
+    }
+
+    const nowLabel = new Date().toISOString().slice(0, 10);
+    return [{ label: nowLabel, sent: 0, delivered: 0, opens: 0, clicks: 0 }];
+  }
+
+  private async buildCampaignSenderPerformance(input: {
+    campaign: CampaignDocument;
+    sendEventMatch: Record<string, unknown>;
+    trackingMatch: Record<string, unknown>;
+  }): Promise<
+    Array<{
+      senderAccountId: string;
+      senderName: string;
+      sent: number;
+      delivered: number;
+      opens: number;
+      clicks: number;
+      deliveryRate: number;
+      openRate: number;
+      clickRate: number;
+    }>
+  > {
+    const isEmailCampaign = input.campaign.channel === CampaignChannel.EMAIL;
+    const sentEventType = isEmailCampaign
+      ? EmailSendEventType.SEND_SUCCESS
+      : EmailSendEventType.WHATSAPP_STATUS_SENT;
+    const deliveredEventType = isEmailCampaign
+      ? EmailSendEventType.SEND_SUCCESS
+      : EmailSendEventType.WHATSAPP_STATUS_DELIVERED;
+
+    const sendRows = await this.sendEventModel
+      .aggregate<{
+        senderAccountId: Types.ObjectId;
+        sent: number;
+        delivered: number;
+      }>([
+        { $match: input.sendEventMatch },
+        {
+          $group: {
+            _id: '$senderAccountId',
+            sent: {
+              $sum: {
+                $cond: [{ $eq: ['$eventType', sentEventType] }, 1, 0],
+              },
+            },
+            delivered: {
+              $sum: {
+                $cond: [{ $eq: ['$eventType', deliveredEventType] }, 1, 0],
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            senderAccountId: '$_id',
+            sent: 1,
+            delivered: 1,
+          },
+        },
+      ])
+      .exec();
+
+    const engagementBySender = new Map<string, { opens: number; clicks: number }>();
+    if (isEmailCampaign) {
+      const trackingRows = await this.trackingEventModel
+        .aggregate<{ senderAccountId: Types.ObjectId; opens: number; clicks: number }>([
+          { $match: input.trackingMatch },
+          {
+            $lookup: {
+              from: this.campaignRecipientModel.collection.name,
+              localField: 'campaignRecipientId',
+              foreignField: '_id',
+              as: 'recipient',
+            },
+          },
+          { $unwind: '$recipient' },
+          {
+            $group: {
+              _id: '$recipient.senderAccountId',
+              opens: {
+                $sum: {
+                  $cond: [{ $eq: ['$eventType', 'open'] }, 1, 0],
+                },
+              },
+              clicks: {
+                $sum: {
+                  $cond: [{ $eq: ['$eventType', 'click'] }, 1, 0],
+                },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              senderAccountId: '$_id',
+              opens: 1,
+              clicks: 1,
+            },
+          },
+        ])
+        .exec();
+
+      for (const row of trackingRows) {
+        engagementBySender.set(row.senderAccountId.toString(), {
+          opens: row.opens,
+          clicks: row.clicks,
+        });
+      }
+    }
+
+    const senderIds = sendRows.map((row) => row.senderAccountId);
+    const senders = senderIds.length
+      ? await this.senderAccountModel
+          .find({ _id: { $in: senderIds } })
+          .select('_id name')
+          .lean()
+          .exec()
+      : [];
+    const senderNameById = new Map(senders.map((sender) => [String(sender._id), sender.name]));
+
+    return sendRows.map((row) => {
+      const senderId = row.senderAccountId.toString();
+      const engagement = engagementBySender.get(senderId) ?? { opens: 0, clicks: 0 };
+      const delivered = row.delivered;
+      const sent = row.sent;
+
+      return {
+        senderAccountId: senderId,
+        senderName: senderNameById.get(senderId) ?? 'Sender',
+        sent,
+        delivered,
+        opens: engagement.opens,
+        clicks: engagement.clicks,
+        deliveryRate: this.toPercent(this.safeDivide(delivered, Math.max(sent, 1))),
+        openRate: this.toPercent(this.safeDivide(engagement.opens, Math.max(delivered, 1))),
+        clickRate: this.toPercent(this.safeDivide(engagement.clicks, Math.max(delivered, 1))),
+      };
+    });
+  }
+
+  private async findOwnedCampaignByIdentifier(
+    campaignIdentifier: string,
+    workspaceObjectId: Types.ObjectId,
+  ): Promise<CampaignDocument> {
+    const normalizedIdentifier = campaignIdentifier.trim();
+    if (!normalizedIdentifier) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'CAMPAIGN_IDENTIFIER_REQUIRED',
+        'Campaign name or ID is required',
+      );
+    }
+
+    if (Types.ObjectId.isValid(normalizedIdentifier)) {
+      const byId = await this.campaignModel
+        .findOne({
+          _id: new Types.ObjectId(normalizedIdentifier),
+          workspaceId: workspaceObjectId,
+        })
+        .exec();
+
+      if (byId) {
+        return byId;
+      }
+    }
+
+    const exactName = new RegExp(`^${this.escapeRegex(normalizedIdentifier)}$`, 'i');
+    const byName = await this.campaignModel
+      .find({
+        workspaceId: workspaceObjectId,
+        name: exactName,
+      })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .limit(2)
+      .exec();
+
+    if (!byName.length) {
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        'CAMPAIGN_NOT_FOUND',
+        `Campaign "${normalizedIdentifier}" not found`,
+      );
+    }
+
+    if (byName.length > 1) {
+      throw new AppException(
+        HttpStatus.CONFLICT,
+        'CAMPAIGN_NAME_NOT_UNIQUE',
+        `Multiple campaigns found for name "${normalizedIdentifier}". Use campaign ID instead.`,
+      );
+    }
+
+    return byName[0];
   }
 
   async getSenderAnalytics(
@@ -762,6 +1125,10 @@ export class AnalyticsService {
     return Number((numerator / denominator).toFixed(4));
   }
 
+  private toPercent(value: number): number {
+    return Number((value * 100).toFixed(2));
+  }
+
   private maxDate(...dates: Array<Date | null | undefined>): Date | null {
     let max: Date | null = null;
 
@@ -797,5 +1164,9 @@ export class AnalyticsService {
     }
 
     return authUser.workspaceId;
+  }
+
+  private escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }

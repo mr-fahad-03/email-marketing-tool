@@ -40,7 +40,7 @@ export const REGISTERED_QUEUES = Object.values(QUEUE_NAMES);
 
 export const QUEUE_WORKERS_ENABLED = toBoolean(
   process.env.QUEUE_WORKERS_ENABLED,
-  (process.env.NODE_ENV ?? 'development') !== 'development',
+  true,
 );
 
 export const QUEUE_WORKER_SKIP_VERSION_CHECK = toBoolean(

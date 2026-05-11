@@ -11,13 +11,13 @@ import { AnalyticsService } from './analytics.service';
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
-  @Get('campaigns/:id')
+  @Get('campaigns/:campaignIdentifier')
   getCampaignAnalytics(
-    @Param('id', ParseObjectIdPipe) campaignId: string,
+    @Param('campaignIdentifier') campaignIdentifier: string,
     @Query() filters: EventQueryFiltersDto,
     @CurrentUser() authUser: AuthUser,
   ): Promise<Record<string, unknown>> {
-    return this.analyticsService.getCampaignAnalytics(campaignId, filters, authUser);
+    return this.analyticsService.getCampaignAnalytics(campaignIdentifier, filters, authUser);
   }
 
   @Get('senders/:id')

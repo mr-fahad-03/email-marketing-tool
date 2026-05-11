@@ -65,6 +65,11 @@ export class EmailSendProcessor extends WorkerHost {
           throw error;
         }
 
+        await this.emailService.markJobAsFailedForNonRetryableError(
+          job.data,
+          `${response.code ?? 'APP_EXCEPTION'}: ${response.message ?? error.message}`,
+        );
+
         this.logger.warn(
           `Non-retryable email send job failure id=${job.id}: ${response.code ?? 'APP_EXCEPTION'} ${response.message ?? error.message}`,
         );

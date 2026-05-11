@@ -50,7 +50,7 @@ export const redisConfig = registerAs('redis', () => ({
 }));
 
 export const queueConfig = registerAs('queues', () => ({
-  workersEnabled: (process.env.QUEUE_WORKERS_ENABLED ?? 'false') === 'true',
+  workersEnabled: (process.env.QUEUE_WORKERS_ENABLED ?? 'true') === 'true',
   defaultAttempts: Number(process.env.QUEUE_DEFAULT_ATTEMPTS ?? 5),
   defaultBackoffMs: Number(process.env.QUEUE_DEFAULT_BACKOFF_MS ?? 5000),
   concurrency: {

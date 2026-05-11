@@ -65,6 +65,11 @@ export class WhatsappSendProcessor extends WorkerHost {
           throw error;
         }
 
+        await this.whatsappService.markJobAsFailedForNonRetryableError(
+          job.data,
+          `${response.code ?? 'APP_EXCEPTION'}: ${response.message ?? error.message}`,
+        );
+
         this.logger.warn(
           `Non-retryable WhatsApp send job failure id=${job.id}: ${response.code ?? 'APP_EXCEPTION'} ${response.message ?? error.message}`,
         );

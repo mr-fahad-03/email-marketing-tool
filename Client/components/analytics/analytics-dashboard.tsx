@@ -1,7 +1,7 @@
 'use client';
 
 import { Search } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { getCampaignAnalytics } from '@/lib/api/analytics';
 import type { CampaignAnalytics } from '@/lib/types/analytics';
@@ -28,28 +28,58 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function AnalyticsDashboard() {
-  const [campaignIdInput, setCampaignIdInput] = useState('');
+  const [campaignNameInput, setCampaignNameInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [analytics, setAnalytics] = useState<CampaignAnalytics | null>(null);
+  const [activeCampaignIdentifier, setActiveCampaignIdentifier] = useState<string | null>(null);
+
+  const fetchAnalytics = useCallback(
+    async (campaignIdentifier: string, options?: { showLoader?: boolean }) => {
+      const showLoader = options?.showLoader ?? false;
+      if (showLoader) {
+        setIsLoading(true);
+      }
+
+      try {
+        const result = await getCampaignAnalytics(campaignIdentifier);
+        setAnalytics(result);
+        setActiveCampaignIdentifier(result.campaignId || campaignIdentifier);
+      } catch (error: unknown) {
+        if (showLoader) {
+          toast.error(getErrorMessage(error));
+        }
+      } finally {
+        if (showLoader) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
   const handleLoadAnalytics = async () => {
-    const campaignId = campaignIdInput.trim();
-    if (!campaignId) {
-      toast.error('Enter a campaign ID to load analytics.');
+    const campaignIdentifier = campaignNameInput.trim();
+    if (!campaignIdentifier) {
+      toast.error('Enter a campaign name to load analytics.');
       return;
     }
 
-    setIsLoading(true);
-
-    try {
-      const result = await getCampaignAnalytics(campaignId);
-      setAnalytics(result);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
+    await fetchAnalytics(campaignIdentifier, { showLoader: true });
   };
+
+  useEffect(() => {
+    if (!activeCampaignIdentifier) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void fetchAnalytics(activeCampaignIdentifier);
+    }, 15000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeCampaignIdentifier, fetchAnalytics]);
 
   return (
     <section className="space-y-5">
@@ -59,16 +89,22 @@ export function AnalyticsDashboard() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-zinc-400">
-            Load campaign analytics using campaign ID.
+            Load campaign analytics using campaign name.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative w-full">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               <Input
                 className="border-zinc-800 bg-zinc-900 pl-9 text-zinc-100"
-                placeholder="Enter campaign ID"
-                value={campaignIdInput}
-                onChange={(event) => setCampaignIdInput(event.target.value)}
+                placeholder="Enter campaign name"
+                value={campaignNameInput}
+                onChange={(event) => setCampaignNameInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void handleLoadAnalytics();
+                  }
+                }}
               />
             </div>
             <Button onClick={() => void handleLoadAnalytics()} disabled={isLoading}>
@@ -106,7 +142,7 @@ export function AnalyticsDashboard() {
           <CardContent className="py-12 text-center">
             <p className="text-sm font-medium text-zinc-200">No analytics loaded yet</p>
             <p className="mt-1 text-xs text-zinc-500">
-              Enter a campaign ID above to view campaign stats and charts.
+              Enter a campaign name above to view campaign stats and charts.
             </p>
           </CardContent>
         </Card>

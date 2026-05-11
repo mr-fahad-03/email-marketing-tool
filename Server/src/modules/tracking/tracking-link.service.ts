@@ -62,6 +62,9 @@ export class TrackingLinkService {
       html = html.replace(/{{TRACKED_LINK:([^}]+)}}/g, (_full, rawUrl: string) =>
         this.generateTrackedLink(rawUrl.trim(), context),
       );
+      text = text.replace(/{{TRACKED_LINK:([^}]+)}}/g, (_full, rawUrl: string) =>
+        this.generateTrackedLink(rawUrl.trim(), context),
+      );
     }
 
     let openPixelUrl: string | undefined;

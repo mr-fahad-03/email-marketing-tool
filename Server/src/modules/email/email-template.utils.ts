@@ -44,15 +44,41 @@ export const injectEmailTrackingPlaceholders = (input: {
 
   if (input.trackClicks) {
     html = html.replace(
-      /href=(["'])([^"']+)\1/gi,
-      (_full, quote: string, url: string) => `href=${quote}{{TRACKED_LINK:${url}}}${quote}`,
+      /href\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi,
+      (full, doubleQuoted: string, singleQuoted: string, unquoted: string) => {
+        const url = (doubleQuoted ?? singleQuoted ?? unquoted ?? '').trim();
+        if (!url || url.startsWith('{{TRACKED_LINK:')) {
+          return full;
+        }
+
+        if (url.startsWith('#') || url.startsWith('mailto:')) {
+          return full;
+        }
+
+        return `href="{{TRACKED_LINK:${url}}}"`;
+      },
+    );
+
+    text = text.replace(
+      /\bhttps?:\/\/[^\s<>"')\]]+/gi,
+      (url) => `{{TRACKED_LINK:${url}}}`,
     );
   }
 
   if (input.trackOpens) {
     const trackingPixel =
-      '<img src="{{TRACKING_PIXEL_URL}}" alt="" width="1" height="1" style="display:none;" />';
-    html = `${html}\n${trackingPixel}`.trim();
+      '<img src="{{TRACKING_PIXEL_URL}}" alt="" width="1" height="1" style="width:1px;height:1px;opacity:0;border:0;" />';
+    const bodyCloseTagPattern = /<\/body\s*>/i;
+    if (bodyCloseTagPattern.test(html)) {
+      html = html.replace(bodyCloseTagPattern, `${trackingPixel}</body>`);
+    } else {
+      const htmlCloseTagPattern = /<\/html\s*>/i;
+      if (htmlCloseTagPattern.test(html)) {
+        html = html.replace(htmlCloseTagPattern, `${trackingPixel}</html>`);
+      } else {
+        html = `${html}\n${trackingPixel}`.trim();
+      }
+    }
   }
 
   return { html, text };

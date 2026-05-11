@@ -334,6 +334,73 @@ export class EmailService {
     }
   }
 
+  async markJobAsFailedForNonRetryableError(
+    input: EmailSendWorkerInput,
+    reason: string,
+  ): Promise<void> {
+    let campaignId: Types.ObjectId;
+    let campaignRecipientId: Types.ObjectId;
+    let senderAccountId: Types.ObjectId;
+    let contactId: Types.ObjectId;
+
+    try {
+      campaignId = this.toObjectId(input.campaignId, 'INVALID_CAMPAIGN_ID');
+      campaignRecipientId = this.toObjectId(
+        input.campaignRecipientId,
+        'INVALID_CAMPAIGN_RECIPIENT_ID',
+      );
+      senderAccountId = this.toObjectId(input.senderAccountId, 'INVALID_SENDER_ACCOUNT_ID');
+      contactId = this.toObjectId(input.contactId, 'INVALID_CONTACT_ID');
+    } catch {
+      return;
+    }
+
+    const failureReason = `SEND_ABORTED: ${reason}`.slice(0, 500);
+    const updateResult = await this.campaignRecipientModel
+      .updateOne(
+        {
+          _id: campaignRecipientId,
+          campaignId,
+          senderAccountId,
+          contactId,
+          status: {
+            $in: [
+              CampaignRecipientStatus.PENDING,
+              CampaignRecipientStatus.QUEUED,
+              CampaignRecipientStatus.SENDING,
+            ],
+          },
+        },
+        {
+          $set: {
+            status: CampaignRecipientStatus.FAILED,
+            providerMessageId: null,
+            failureReason,
+            failedAt: new Date(),
+          },
+        },
+      )
+      .exec();
+
+    if (!updateResult.modifiedCount) {
+      return;
+    }
+
+    await this.campaignModel
+      .updateOne(
+        { _id: campaignId },
+        {
+          $inc: {
+            'stats.failedRecipients': 1,
+            'stats.queuedRecipients': -1,
+          },
+        },
+      )
+      .exec();
+
+    await this.tryMarkCampaignCompleted(campaignId);
+  }
+
   private async loadContext(input: EmailSendWorkerInput): Promise<EmailSendContext> {
     const campaignId = this.toObjectId(input.campaignId, 'INVALID_CAMPAIGN_ID');
     const campaignRecipientId = this.toObjectId(

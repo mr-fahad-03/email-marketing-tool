@@ -51,6 +51,16 @@ export function DashboardOverview() {
     void loadDashboard();
   }, [loadDashboard]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadDashboard();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [loadDashboard]);
+
   if (loading) {
     return <DashboardOverviewSkeleton />;
   }
