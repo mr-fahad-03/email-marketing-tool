@@ -69,8 +69,11 @@ export const injectEmailTrackingPlaceholders = (input: {
   if (input.trackOpens) {
     const trackingPixel =
       '<img src="{{TRACKING_PIXEL_URL}}" alt="" width="1" height="1" style="width:1px;height:1px;opacity:0;border:0;" />';
+    const bodyOpenTagPattern = /<body\b[^>]*>/i;
     const bodyCloseTagPattern = /<\/body\s*>/i;
-    if (bodyCloseTagPattern.test(html)) {
+    if (bodyOpenTagPattern.test(html)) {
+      html = html.replace(bodyOpenTagPattern, (match) => `${match}${trackingPixel}`);
+    } else if (bodyCloseTagPattern.test(html)) {
       html = html.replace(bodyCloseTagPattern, `${trackingPixel}</body>`);
     } else {
       const htmlCloseTagPattern = /<\/html\s*>/i;
