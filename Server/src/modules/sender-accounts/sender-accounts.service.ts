@@ -17,7 +17,11 @@ import { ListSenderAccountsDto } from './dto/list-sender-accounts.dto';
 import { UpdateSenderAccountDto } from './dto/update-sender-account.dto';
 import { SenderAccount, SenderAccountDocument } from './schemas/sender-account.schema';
 import { SenderAccountSecretsService } from './sender-account-secrets.service';
-import { SenderAccountResponse, SenderAccountTestResponse } from './types/sender-account.response';
+import {
+  SenderAccountResponse,
+  SenderAccountSmtpPasswordResponse,
+  SenderAccountTestResponse,
+} from './types/sender-account.response';
 
 @Injectable()
 export class SenderAccountsService {
@@ -191,6 +195,34 @@ export class SenderAccountsService {
     }
 
     return this.testWhatsappAccount(account);
+  }
+
+  async revealSmtpPassword(
+    id: string,
+    authUser: AuthUser,
+  ): Promise<SenderAccountSmtpPasswordResponse> {
+    const account = await this.findOwnedByWorkspace(id, authUser, true);
+
+    if (account.channelType !== SenderChannelType.EMAIL || !account.email) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'SENDER_ACCOUNT_NOT_EMAIL',
+        'SMTP password is only available for email sender accounts',
+      );
+    }
+
+    const encryptedSmtpPass = account.secrets?.smtpPassEncrypted;
+    if (!encryptedSmtpPass) {
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        'SMTP_PASSWORD_NOT_SET',
+        'SMTP password is not set for this sender account',
+      );
+    }
+
+    return {
+      smtpPass: this.secretsService.decrypt(encryptedSmtpPass),
+    };
   }
 
   private async createEmailSenderAccount(

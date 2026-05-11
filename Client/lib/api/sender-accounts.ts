@@ -241,3 +241,19 @@ export async function testSenderAccount(id: string): Promise<SenderAccountTestRe
     message: getString(record, ['message']) ?? 'Connection test completed.',
   };
 }
+
+export async function revealSenderAccountSmtpPassword(id: string): Promise<string> {
+  const payload = await apiRequest<unknown>({
+    method: 'GET',
+    url: `/sender-accounts/${id}/reveal-smtp-password`,
+  });
+
+  const record = getRecord(payload);
+  const smtpPass = record ? getString(record, ['smtpPass']) : undefined;
+
+  if (!smtpPass) {
+    throw new Error('Unable to load SMTP password.');
+  }
+
+  return smtpPass;
+}

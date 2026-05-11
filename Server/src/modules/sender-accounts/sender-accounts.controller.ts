@@ -17,7 +17,11 @@ import { CreateSenderAccountDto } from './dto/create-sender-account.dto';
 import { ListSenderAccountsDto } from './dto/list-sender-accounts.dto';
 import { UpdateSenderAccountDto } from './dto/update-sender-account.dto';
 import { SenderAccountsService } from './sender-accounts.service';
-import { SenderAccountResponse, SenderAccountTestResponse } from './types/sender-account.response';
+import {
+  SenderAccountResponse,
+  SenderAccountSmtpPasswordResponse,
+  SenderAccountTestResponse,
+} from './types/sender-account.response';
 
 @Controller('sender-accounts')
 @UseGuards(JwtAuthGuard)
@@ -46,6 +50,14 @@ export class SenderAccountsController {
     @CurrentUser() authUser: AuthUser,
   ): Promise<SenderAccountResponse> {
     return this.senderAccountsService.findOne(id, authUser);
+  }
+
+  @Get(':id/reveal-smtp-password')
+  revealSmtpPassword(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<SenderAccountSmtpPasswordResponse> {
+    return this.senderAccountsService.revealSmtpPassword(id, authUser);
   }
 
   @Patch(':id')

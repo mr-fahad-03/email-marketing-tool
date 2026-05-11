@@ -52,3 +52,7 @@ export interface SenderAccountTestResponse {
   result: 'passed' | 'failed';
   details: string;
 }
+
+export interface SenderAccountSmtpPasswordResponse {
+  smtpPass: string;
+}

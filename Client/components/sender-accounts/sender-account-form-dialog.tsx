@@ -1,7 +1,8 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,6 +28,7 @@ interface SenderAccountFormDialogProps {
   account?: SenderAccount | null;
   isSubmitting?: boolean;
   onSubmit: (values: SenderAccountFormValues) => Promise<void>;
+  onRevealSmtpPassword?: (accountId: string) => Promise<string>;
 }
 
 function getDefaultValues(account?: SenderAccount | null): SenderAccountFormValues {
@@ -59,7 +61,7 @@ function getDefaultValues(account?: SenderAccount | null): SenderAccountFormValu
       smtpHost: account.smtpHost,
       smtpPort: account.smtpPort,
       smtpUser: account.smtpUser,
-      smtpPass: '',
+      smtpPass: account.smtpPass ?? '',
       secure: account.secure ?? false,
       dailyLimit: account.dailyLimit,
       hourlyLimit: account.hourlyLimit,
@@ -94,22 +96,71 @@ export function SenderAccountFormDialog({
   account,
   isSubmitting = false,
   onSubmit,
+  onRevealSmtpPassword,
 }: SenderAccountFormDialogProps) {
+  const secretMask = '********';
   const isEdit = Boolean(account);
   const schema = isEdit ? updateSenderAccountSchema : createSenderAccountSchema;
   const form = useForm<SenderAccountFormValues>({
     resolver: zodResolver(schema) as never,
     defaultValues: getDefaultValues(account),
   });
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [isRevealingSmtpPassword, setIsRevealingSmtpPassword] = useState(false);
 
   const type = useWatch({
     control: form.control,
     name: 'type',
   }) as SenderAccountFormValues['type'] | undefined;
+  const selectedType = type ?? account?.type ?? 'email';
 
   useEffect(() => {
     form.reset(getDefaultValues(account));
+    setShowSmtpPassword(false);
+    setIsRevealingSmtpPassword(false);
   }, [account, form, open]);
+
+  const handleSmtpPasswordVisibilityToggle = async () => {
+    if (showSmtpPassword) {
+      setShowSmtpPassword(false);
+      return;
+    }
+
+    if (
+      !isEdit ||
+      !account ||
+      account.type !== 'email' ||
+      !onRevealSmtpPassword
+    ) {
+      setShowSmtpPassword(true);
+      return;
+    }
+
+    const smtpPassValue = form.getValues('smtpPass');
+    if (smtpPassValue !== secretMask) {
+      setShowSmtpPassword(true);
+      return;
+    }
+
+    setIsRevealingSmtpPassword(true);
+    form.clearErrors('smtpPass');
+
+    try {
+      const revealedPassword = await onRevealSmtpPassword(account.id);
+      form.setValue('smtpPass', revealedPassword, {
+        shouldDirty: false,
+        shouldTouch: true,
+      });
+      setShowSmtpPassword(true);
+    } catch {
+      form.setError('smtpPass', {
+        type: 'manual',
+        message: 'Unable to reveal saved SMTP password. Please try again.',
+      });
+    } finally {
+      setIsRevealingSmtpPassword(false);
+    }
+  };
 
   const handleSubmit = form.handleSubmit(async (values) => {
     await onSubmit(values);
@@ -168,7 +219,7 @@ export function SenderAccountFormDialog({
             </div>
           </div>
 
-          {type === 'email' ? (
+          {selectedType === 'email' ? (
             <div className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">SMTP Configuration</p>
               <div className="grid gap-4 md:grid-cols-2">
@@ -221,13 +272,26 @@ export function SenderAccountFormDialog({
                   <FieldError message={form.formState.errors.smtpUser?.message} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="smtpPass">{isEdit ? 'SMTP Password (optional)' : 'SMTP Password'}</Label>
-                  <Input
-                    id="smtpPass"
-                    type="password"
-                    className="border-zinc-800 bg-zinc-900 text-zinc-100"
-                    {...form.register('smtpPass')}
-                  />
+                  <Label htmlFor="smtpPass">SMTP Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="smtpPass"
+                      type={showSmtpPassword ? 'text' : 'password'}
+                      className="border-zinc-800 bg-zinc-900 pr-10 text-zinc-100"
+                      {...form.register('smtpPass')}
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-y-0 right-0 inline-flex items-center px-3 text-zinc-400 hover:text-zinc-200"
+                      onClick={() => {
+                        void handleSmtpPasswordVisibilityToggle();
+                      }}
+                      disabled={isRevealingSmtpPassword}
+                      aria-label={showSmtpPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showSmtpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                   <FieldError message={form.formState.errors.smtpPass?.message} />
                 </div>
                 <div className="space-y-2">

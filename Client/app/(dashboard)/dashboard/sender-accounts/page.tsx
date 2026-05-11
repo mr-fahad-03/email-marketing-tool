@@ -12,6 +12,7 @@ import {
   createSenderAccount,
   deleteSenderAccount,
   getSenderAccounts,
+  revealSenderAccountSmtpPassword,
   testSenderAccount,
   updateSenderAccount,
 } from '@/lib/api/sender-accounts';
@@ -89,7 +90,18 @@ export default function SenderAccountsPage() {
 
     try {
       if (editingAccount) {
-        await updateSenderAccount(editingAccount.id, values);
+        const payload: SenderAccountFormValues = { ...values };
+
+        // Keep existing secret when the masked value was left unchanged in edit mode.
+        if (
+          editingAccount.type === 'email' &&
+          payload.type === 'email' &&
+          payload.smtpPass === editingAccount.smtpPass
+        ) {
+          payload.smtpPass = '';
+        }
+
+        await updateSenderAccount(editingAccount.id, payload);
         toast.success('Sender account updated.');
       } else {
         await createSenderAccount(values);
@@ -143,6 +155,10 @@ export default function SenderAccountsPage() {
     }
   };
 
+  const handleRevealSmtpPassword = useCallback(async (accountId: string) => {
+    return revealSenderAccountSmtpPassword(accountId);
+  }, []);
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -194,6 +210,7 @@ export default function SenderAccountsPage() {
         account={editingAccount}
         onSubmit={handleSave}
         isSubmitting={isSaving}
+        onRevealSmtpPassword={handleRevealSmtpPassword}
       />
     </section>
   );
