@@ -8,6 +8,7 @@ import {
   Mail,
   MessageSquare,
   MousePointerClick,
+  Pencil,
   Play,
   RefreshCw,
   Send,
@@ -161,8 +162,13 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               )}
             </Badge>
             <StatusBadge status={campaign.status} />
-            {campaign.updatedAt && campaign.updatedAt !== campaign.createdAt ? (
-              <Badge variant="secondary">Edited</Badge>
+            {campaign.editedAt ? (
+              <Badge
+                variant="outline"
+                className="border-yellow-200 bg-yellow-100 text-yellow-800"
+              >
+                Edited
+              </Badge>
             ) : null}
           </div>
           <Button
@@ -170,8 +176,8 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
             className="gap-1.5 border border-zinc-900 bg-black text-white hover:bg-black hover:text-white"
             onClick={() => onEdit(campaign)}
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Edit &amp; Re-run
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
           </Button>
         </div>
       </CardHeader>
@@ -231,7 +237,7 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
 
             <div className="flex flex-wrap gap-3 text-[11px] text-zinc-400">
               <span>Created: {formatDate(campaign.createdAt)}</span>
-              {campaign.updatedAt && campaign.updatedAt !== campaign.createdAt && (
+              {campaign.editedAt && campaign.updatedAt && (
                 <span>Updated: {formatDate(campaign.updatedAt)}</span>
               )}
             </div>
@@ -345,7 +351,7 @@ export default function SegmentsPage() {
           <h2 className="text-xl font-bold text-zinc-900">Campaign Segments</h2>
           <p className="mt-0.5 text-sm text-zinc-500">
             Full history of every campaign — contacts, template, audience, and delivery stats.
-            Click <strong>Edit &amp; Re-run</strong> to modify and relaunch any campaign.
+            Click <strong>Edit</strong> to modify an existing campaign segment.
           </p>
         </div>
         <Button

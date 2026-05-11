@@ -47,7 +47,7 @@ function cleanObject<T extends Record<string, unknown>>(input: T): T {
   const output: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(input)) {
-    if (value === undefined || value === null) {
+    if (value === undefined) {
       continue;
     }
 
@@ -61,20 +61,37 @@ function cleanObject<T extends Record<string, unknown>>(input: T): T {
   return output as T;
 }
 
-function buildPayload(values: CampaignBuilderValues): Record<string, unknown> {
+function buildPayload(
+  values: CampaignBuilderValues,
+  options: { includeAudienceClears?: boolean; includeStatus?: boolean } = {},
+): Record<string, unknown> {
   return cleanObject({
     name: values.name.trim(),
     channel: values.channel,
     senderAccountIds: values.senderAccountIds,
-    segmentId: values.targetMode === 'segment' ? values.segmentId : undefined,
-    contactIds: values.targetMode === 'contacts' ? values.contactIds : undefined,
+    segmentId:
+      values.targetMode === 'segment'
+        ? values.segmentId
+        : options.includeAudienceClears
+          ? null
+          : undefined,
+    contactIds:
+      values.targetMode === 'contacts'
+        ? values.contactIds
+        : options.includeAudienceClears
+          ? []
+          : undefined,
     templateId: values.templateId,
     timezone: values.timezone,
     startAt: values.scheduleMode === 'scheduled' ? values.startAt : undefined,
     sendingWindowStart: values.sendingWindowStart,
     sendingWindowEnd: values.sendingWindowEnd,
     dailyCap: values.dailyCap,
-    status: values.scheduleMode === 'scheduled' ? 'scheduled' : 'draft',
+    status: options.includeStatus
+      ? values.scheduleMode === 'scheduled'
+        ? 'scheduled'
+        : 'draft'
+      : undefined,
   });
 }
 
@@ -113,6 +130,7 @@ function normalizeCampaign(input: unknown): Campaign {
     sendingWindowStart: getString(record, ['sendingWindowStart']) ?? null,
     sendingWindowEnd: getString(record, ['sendingWindowEnd']) ?? null,
     dailyCap: getNumber(record, ['dailyCap']) ?? null,
+    editedAt: getString(record, ['editedAt']) ?? null,
     createdAt: getString(record, ['createdAt']),
     updatedAt: getString(record, ['updatedAt']),
     stats: {
@@ -155,7 +173,20 @@ export async function createCampaign(values: CampaignBuilderValues): Promise<Cam
   const payload = await apiRequest<unknown, Record<string, unknown>>({
     method: 'POST',
     url: '/campaigns',
-    data: buildPayload(values),
+    data: buildPayload(values, { includeStatus: true }),
+  });
+
+  return normalizeCampaign(payload);
+}
+
+export async function updateCampaign(
+  campaignId: string,
+  values: CampaignBuilderValues,
+): Promise<Campaign> {
+  const payload = await apiRequest<unknown, Record<string, unknown>>({
+    method: 'PATCH',
+    url: `/campaigns/${campaignId}`,
+    data: buildPayload(values, { includeAudienceClears: true }),
   });
 
   return normalizeCampaign(payload);

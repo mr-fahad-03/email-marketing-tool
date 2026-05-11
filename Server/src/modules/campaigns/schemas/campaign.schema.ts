@@ -132,6 +132,9 @@ export class Campaign {
   @Prop({ type: CampaignStats, default: () => ({}) })
   stats!: CampaignStats;
 
+  @Prop({ type: Date, default: null })
+  editedAt!: Date | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }

@@ -35,6 +35,7 @@ export interface Campaign {
   sendingWindowStart?: string | null;
   sendingWindowEnd?: string | null;
   dailyCap?: number | null;
+  editedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
   stats?: {

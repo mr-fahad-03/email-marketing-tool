@@ -221,79 +221,101 @@ export class CampaignsService {
   async update(id: string, dto: UpdateCampaignDto, authUser: AuthUser): Promise<CampaignResponse> {
     const campaign = await this.findOwnedCampaign(id, authUser);
     const workspaceId = campaign.workspaceId.toString();
-
-    if (campaign.status === CampaignStatus.RUNNING) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        'CAMPAIGN_RUNNING_UPDATE_NOT_ALLOWED',
-        'Running campaign cannot be modified',
-      );
-    }
+    let hasEdits = false;
 
     if (dto.name !== undefined) {
-      campaign.name = dto.name.trim();
+      const nextName = dto.name.trim();
+      hasEdits ||= campaign.name !== nextName;
+      campaign.name = nextName;
     }
 
     if (dto.channel !== undefined) {
+      hasEdits ||= campaign.channel !== dto.channel;
       campaign.channel = dto.channel;
     }
 
     if (dto.senderAccountIds !== undefined) {
-      campaign.senderAccountIds = this.uniqueObjectIds(dto.senderAccountIds);
+      const nextSenderAccountIds = this.uniqueObjectIds(dto.senderAccountIds);
+      hasEdits ||= !this.objectIdArraysEqual(campaign.senderAccountIds, nextSenderAccountIds);
+      campaign.senderAccountIds = nextSenderAccountIds;
     }
 
     if (dto.segmentId !== undefined) {
-      campaign.segmentId = dto.segmentId
+      const nextSegmentId = dto.segmentId
         ? this.toObjectId(dto.segmentId, 'INVALID_SEGMENT_ID')
         : null;
+      hasEdits ||= !this.objectIdsEqual(campaign.segmentId, nextSegmentId);
+      campaign.segmentId = nextSegmentId;
     }
 
     if (dto.contactIds !== undefined) {
-      campaign.contactIds = this.uniqueObjectIds(dto.contactIds);
+      const nextContactIds = this.uniqueObjectIds(dto.contactIds);
+      hasEdits ||= !this.objectIdArraysEqual(campaign.contactIds, nextContactIds);
+      campaign.contactIds = nextContactIds;
     }
 
     if (dto.templateId !== undefined) {
-      campaign.templateId = this.toObjectId(dto.templateId, 'INVALID_TEMPLATE_ID');
+      const nextTemplateId = this.toObjectId(dto.templateId, 'INVALID_TEMPLATE_ID');
+      hasEdits ||= !this.objectIdsEqual(campaign.templateId, nextTemplateId);
+      campaign.templateId = nextTemplateId;
     }
 
     if (dto.timezone !== undefined) {
+      hasEdits ||= campaign.timezone !== dto.timezone;
       campaign.timezone = dto.timezone;
     }
 
     if (dto.startAt !== undefined) {
-      campaign.startAt = dto.startAt ? new Date(dto.startAt) : null;
+      const nextStartAt = dto.startAt ? new Date(dto.startAt) : null;
+      hasEdits ||= !this.datesEqual(campaign.startAt, nextStartAt);
+      campaign.startAt = nextStartAt;
     }
 
     if (dto.sendingWindowStart !== undefined) {
-      campaign.sendingWindowStart = dto.sendingWindowStart ?? null;
+      const nextSendingWindowStart = dto.sendingWindowStart ?? null;
+      hasEdits ||= campaign.sendingWindowStart !== nextSendingWindowStart;
+      campaign.sendingWindowStart = nextSendingWindowStart;
     }
 
     if (dto.sendingWindowEnd !== undefined) {
-      campaign.sendingWindowEnd = dto.sendingWindowEnd ?? null;
+      const nextSendingWindowEnd = dto.sendingWindowEnd ?? null;
+      hasEdits ||= campaign.sendingWindowEnd !== nextSendingWindowEnd;
+      campaign.sendingWindowEnd = nextSendingWindowEnd;
     }
 
     if (dto.dailyCap !== undefined) {
-      campaign.dailyCap = dto.dailyCap ?? null;
+      const nextDailyCap = dto.dailyCap ?? null;
+      hasEdits ||= campaign.dailyCap !== nextDailyCap;
+      campaign.dailyCap = nextDailyCap;
     }
 
     if (dto.trackOpens !== undefined) {
+      hasEdits ||= campaign.trackOpens !== dto.trackOpens;
       campaign.trackOpens = dto.trackOpens;
     }
 
     if (dto.trackClicks !== undefined) {
+      hasEdits ||= campaign.trackClicks !== dto.trackClicks;
       campaign.trackClicks = dto.trackClicks;
     }
 
     if (dto.randomDelayMinSeconds !== undefined) {
+      hasEdits ||= campaign.randomDelayMinSeconds !== dto.randomDelayMinSeconds;
       campaign.randomDelayMinSeconds = dto.randomDelayMinSeconds;
     }
 
     if (dto.randomDelayMaxSeconds !== undefined) {
+      hasEdits ||= campaign.randomDelayMaxSeconds !== dto.randomDelayMaxSeconds;
       campaign.randomDelayMaxSeconds = dto.randomDelayMaxSeconds;
     }
 
     if (dto.settings?.distributionStrategy !== undefined) {
+      hasEdits ||= campaign.settings.distributionStrategy !== dto.settings.distributionStrategy;
       campaign.settings.distributionStrategy = dto.settings.distributionStrategy;
+    }
+
+    if (!hasEdits) {
+      return this.toResponse(campaign);
     }
 
     this.assertDelayRange(campaign.randomDelayMinSeconds, campaign.randomDelayMaxSeconds);
@@ -307,6 +329,8 @@ export class CampaignsService {
     await this.validateTemplateOwnership(workspaceId, campaign.channel, campaign.templateId);
     await this.validateSegmentOwnership(workspaceId, campaign.segmentId);
     await this.validateContactsOwnership(workspaceId, campaign.contactIds);
+
+    campaign.editedAt = new Date();
 
     const saved = await campaign.save();
     return this.toResponse(saved);
@@ -762,6 +786,7 @@ export class CampaignsService {
         lastClickedAt: campaign.stats?.lastClickedAt ?? null,
         lastWhatsappStatusAt: campaign.stats?.lastWhatsappStatusAt ?? null,
       },
+      editedAt: campaign.editedAt ?? null,
       createdAt: campaign.createdAt,
       updatedAt: campaign.updatedAt,
     };
@@ -832,6 +857,28 @@ export class CampaignsService {
     return Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean))).map((id) =>
       this.toObjectId(id, 'INVALID_ID'),
     );
+  }
+
+  private objectIdsEqual(
+    left: Types.ObjectId | null | undefined,
+    right: Types.ObjectId | null | undefined,
+  ): boolean {
+    return (left?.toString() ?? null) === (right?.toString() ?? null);
+  }
+
+  private objectIdArraysEqual(left: Types.ObjectId[], right: Types.ObjectId[]): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    const leftIds = left.map((id) => id.toString()).sort();
+    const rightIds = right.map((id) => id.toString()).sort();
+
+    return leftIds.every((id, index) => id === rightIds[index]);
+  }
+
+  private datesEqual(left: Date | null | undefined, right: Date | null | undefined): boolean {
+    return (left?.getTime() ?? null) === (right?.getTime() ?? null);
   }
 
   private toObjectId(id: string, code: string): Types.ObjectId {

@@ -15,14 +15,16 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createCampaign, startCampaign } from '@/lib/api/campaigns';
+import { updateCampaign } from '@/lib/api/campaigns';
 import { getContacts, getContactCategorySummary } from '@/lib/api/contacts';
+import { getSegments } from '@/lib/api/segments';
 import { getSenderAccounts } from '@/lib/api/sender-accounts';
 import { getTemplates } from '@/lib/api/templates';
 import { HttpClientError } from '@/lib/api/errors';
 import type { Campaign, CampaignBuilderValues } from '@/lib/types/campaign';
 import type { Contact } from '@/lib/types/contact';
 import type { ContactCategorySummaryItem } from '@/lib/types/contact';
+import type { Segment } from '@/lib/types/segment';
 import type { SenderAccount } from '@/lib/types/sender-account';
 import type { MarketingTemplate } from '@/lib/types/template';
 import {
@@ -55,6 +57,66 @@ function toggleId(ids: string[], id: string, checked: boolean): string[] {
   return ids.filter((item) => item !== id);
 }
 
+function sameStringArray(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const leftSorted = [...left].sort();
+  const rightSorted = [...right].sort();
+  return leftSorted.every((item, index) => item === rightSorted[index]);
+}
+
+function normalizeOptionalString(value?: string | null): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function getCampaignComparable(campaign: Campaign) {
+  return {
+    name: campaign.name.trim(),
+    channel: campaign.channel,
+    senderAccountIds: campaign.senderAccountIds,
+    segmentId: campaign.segmentId ?? undefined,
+    contactIds: campaign.segmentId ? [] : campaign.contactIds,
+    templateId: campaign.templateId ?? undefined,
+    timezone: campaign.timezone ?? 'UTC',
+    sendingWindowStart: normalizeOptionalString(campaign.sendingWindowStart),
+    sendingWindowEnd: normalizeOptionalString(campaign.sendingWindowEnd),
+    dailyCap: campaign.dailyCap ?? undefined,
+  };
+}
+
+function getValuesComparable(values: CampaignBuilderValues) {
+  return {
+    name: values.name.trim(),
+    channel: values.channel,
+    senderAccountIds: values.senderAccountIds,
+    segmentId: values.targetMode === 'segment' ? values.segmentId : undefined,
+    contactIds: values.targetMode === 'contacts' ? values.contactIds : [],
+    templateId: values.templateId,
+    timezone: values.timezone,
+    sendingWindowStart: normalizeOptionalString(values.sendingWindowStart),
+    sendingWindowEnd: normalizeOptionalString(values.sendingWindowEnd),
+    dailyCap: values.dailyCap,
+  };
+}
+
+function hasCampaignChanges(campaign: Campaign, values: CampaignBuilderValues): boolean {
+  const current = getCampaignComparable(campaign);
+  const next = getValuesComparable(values);
+
+  return (
+    current.name !== next.name ||
+    current.channel !== next.channel ||
+    !sameStringArray(current.senderAccountIds, next.senderAccountIds) ||
+    current.segmentId !== next.segmentId ||
+    !sameStringArray(current.contactIds, next.contactIds) ||
+    current.templateId !== next.templateId ||
+    current.timezone !== next.timezone ||
+    current.sendingWindowStart !== next.sendingWindowStart ||
+    current.sendingWindowEnd !== next.sendingWindowEnd ||
+    current.dailyCap !== next.dailyCap
+  );
+}
+
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return <p className="text-xs text-rose-500">{message}</p>;
@@ -64,6 +126,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [categories, setCategories] = useState<ContactCategorySummaryItem[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([]);
   const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
   const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -93,11 +156,11 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
   useEffect(() => {
     if (!campaign || !open) return;
     form.reset({
-      name: `${campaign.name} (re-run)`,
+      name: campaign.name,
       description: '',
       channel: campaign.channel,
-      targetMode: 'contacts',
-      segmentId: '',
+      targetMode: campaign.segmentId ? 'segment' : 'contacts',
+      segmentId: campaign.segmentId ?? '',
       categoryName: '',
       contactIds: campaign.contactIds,
       senderAccountIds: campaign.senderAccountIds,
@@ -114,6 +177,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
   const channel = useWatch({ control: form.control, name: 'channel' }) ?? 'email';
   const targetMode = useWatch({ control: form.control, name: 'targetMode' }) ?? 'contacts';
   const watchedContactIds = useWatch({ control: form.control, name: 'contactIds' }) ?? [];
+  const watchedSegmentId = useWatch({ control: form.control, name: 'segmentId' }) ?? '';
   const watchedTemplateId = useWatch({ control: form.control, name: 'templateId' }) ?? '';
   const watchedCategoryName = useWatch({ control: form.control, name: 'categoryName' }) ?? '';
   const watchedSenderIds = useWatch({ control: form.control, name: 'senderAccountIds' }) ?? [];
@@ -121,16 +185,19 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
   const loadOptions = useCallback(
     async (ch: 'email' | 'whatsapp') => {
       setIsLoading(true);
-      const [contactsRes, sendersRes, templatesRes, categoriesRes] = await Promise.allSettled([
-        getContacts({ page: 1, limit: 100 }),
-        getSenderAccounts(ch),
-        getTemplates({ page: 1, limit: 100, type: ch }),
-        getContactCategorySummary(),
-      ]);
+      const [contactsRes, sendersRes, templatesRes, categoriesRes, segmentsRes] =
+        await Promise.allSettled([
+          getContacts({ page: 1, limit: 100 }),
+          getSenderAccounts(ch),
+          getTemplates({ page: 1, limit: 100, type: ch }),
+          getContactCategorySummary(),
+          getSegments({ page: 1, limit: 100 }),
+        ]);
       if (contactsRes.status === 'fulfilled') setContacts(contactsRes.value.items);
       if (sendersRes.status === 'fulfilled') setSenderAccounts(sendersRes.value);
       if (templatesRes.status === 'fulfilled') setTemplates(templatesRes.value.items);
       if (categoriesRes.status === 'fulfilled') setCategories(categoriesRes.value.categories);
+      if (segmentsRes.status === 'fulfilled') setSegments(segmentsRes.value.items);
       setIsLoading(false);
     },
     [],
@@ -147,6 +214,8 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
   );
 
   const handleSubmit = form.handleSubmit(async (values) => {
+    if (!campaign) return;
+
     setIsSubmitting(true);
     try {
       let resolvedContactIds = values.contactIds;
@@ -168,10 +237,15 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
         targetMode: values.targetMode === 'category' ? 'contacts' : values.targetMode,
       } as CampaignBuilderValues;
 
-      const created = await createCampaign(payload);
-      await startCampaign(created.id);
+      if (!hasCampaignChanges(campaign, payload)) {
+        toast.info('No changes to save.');
+        onOpenChange(false);
+        return;
+      }
 
-      toast.success(`Campaign "${created.name}" launched successfully.`);
+      const updated = await updateCampaign(campaign.id, payload);
+
+      toast.success(`Campaign "${updated.name}" updated successfully.`);
       onOpenChange(false);
       onSuccess();
     } catch (error: unknown) {
@@ -185,10 +259,10 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit &amp; Re-run Campaign</DialogTitle>
+          <DialogTitle>Edit Campaign Segment</DialogTitle>
           <DialogDescription>
-            Modify the audience, template, and settings below. A new campaign will be created and
-            launched immediately.
+            Modify the audience, template, and settings below. The existing campaign segment will
+            be updated.
           </DialogDescription>
         </DialogHeader>
 
@@ -196,7 +270,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
           {/* Campaign name */}
           <div className="space-y-1.5">
             <Label htmlFor="er-name">Campaign Name</Label>
-            <Input id="er-name" placeholder="My Campaign (re-run)" {...form.register('name')} />
+            <Input id="er-name" placeholder="My Campaign" {...form.register('name')} />
             <FieldError message={form.formState.errors.name?.message} />
           </div>
 
@@ -240,7 +314,22 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
           {/* Audience Mode */}
           <div className="space-y-2">
             <Label>Audience</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                className={`rounded-lg border-2 p-3 text-left text-sm font-semibold transition-all ${
+                  targetMode === 'segment'
+                    ? 'border-zinc-900 bg-zinc-100 text-black'
+                    : 'border-zinc-400 bg-white text-black hover:bg-zinc-200'
+                }`}
+                onClick={() => {
+                  form.setValue('targetMode', 'segment');
+                  form.setValue('categoryName', '');
+                  form.setValue('contactIds', []);
+                }}
+              >
+                Segment
+              </button>
               <button
                 type="button"
                 className={`rounded-lg border-2 p-3 text-left text-sm font-semibold transition-all ${
@@ -250,10 +339,11 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
                 }`}
                 onClick={() => {
                   form.setValue('targetMode', 'contacts');
+                  form.setValue('segmentId', '');
                   form.setValue('categoryName', '');
                 }}
               >
-                Select Contacts
+                Contacts
               </button>
               <button
                 type="button"
@@ -264,15 +354,45 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
                 }`}
                 onClick={() => {
                   form.setValue('targetMode', 'category');
+                  form.setValue('segmentId', '');
                   form.setValue('contactIds', []);
                 }}
               >
-                By Category
+                Category
               </button>
             </div>
 
             {isLoading ? (
               <p className="text-xs text-zinc-400">Loading options...</p>
+            ) : targetMode === 'segment' ? (
+              <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-lg border border-zinc-200 p-2">
+                {segments.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-zinc-400">No segments found.</p>
+                ) : (
+                  segments.map((segment) => (
+                    <label
+                      key={segment.id}
+                      className="flex cursor-pointer items-center justify-between rounded-md border border-zinc-100 px-3 py-2 hover:bg-zinc-50"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-zinc-800">{segment.name}</p>
+                        <p className="text-xs text-zinc-400">
+                          {segment.estimatedCount} contact
+                          {segment.estimatedCount !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      <input
+                        type="radio"
+                        className="h-4 w-4 accent-zinc-900"
+                        checked={watchedSegmentId === segment.id}
+                        onChange={() =>
+                          form.setValue('segmentId', segment.id, { shouldDirty: true })
+                        }
+                      />
+                    </label>
+                  ))
+                )}
+              </div>
             ) : targetMode === 'contacts' ? (
               <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-lg border border-zinc-200 p-2">
                 {contacts.length === 0 ? (
@@ -321,7 +441,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
               /* By Category */
               <div className="space-y-1.5">
                 <p className="text-xs text-zinc-400">
-                  All contacts in the selected category will be included when launched.
+                  All contacts in the selected category will be saved as the audience.
                 </p>
                 <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-lg border border-zinc-200 p-2">
                   {categories.length === 0 ? (
@@ -354,6 +474,9 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
               </div>
             )}
 
+            {targetMode === 'segment' && (
+              <FieldError message={form.formState.errors.segmentId?.message} />
+            )}
             {targetMode === 'contacts' && (
               <FieldError
                 message={form.formState.errors.contactIds?.message as string | undefined}
@@ -472,7 +595,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting || isLoading}>
-              {isSubmitting ? 'Launching...' : 'Re-run Campaign'}
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </form>
