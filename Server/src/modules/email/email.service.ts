@@ -185,6 +185,15 @@ export class EmailService {
         campaignRecipientId: context.recipient._id.toString(),
         contactId: context.contact._id.toString(),
       });
+      const trackingDiagnostics = {
+        opensEnabled: context.campaign.trackOpens,
+        clicksEnabled: context.campaign.trackClicks,
+        openPixelInjected: Boolean(
+          tracked.openPixelUrl && tracked.html.includes(tracked.openPixelUrl),
+        ),
+        trackedHtmlLinkCount: this.countTrackedLinks(tracked.html),
+        trackedTextLinkCount: this.countTrackedLinks(tracked.text),
+      };
 
       const sendResult = await transporter.sendMail({
         from: this.buildFromAddress(context.senderAccount),
@@ -237,6 +246,7 @@ export class EmailService {
         maxAttempts: ctx.maxAttempts,
         metadata: {
           unresolvedVariables: rendered.unresolvedVariables,
+          tracking: trackingDiagnostics,
         },
       });
 
@@ -605,6 +615,11 @@ export class EmailService {
     }
 
     return `"${senderAccount.name}" <${senderEmail}>`;
+  }
+
+  private countTrackedLinks(content: string): number {
+    const matches = content.match(/\/tracking\/click\//g);
+    return matches?.length ?? 0;
   }
 
   private async markRecipientSuppressed(context: EmailSendContext): Promise<void> {

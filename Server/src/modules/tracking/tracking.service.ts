@@ -25,15 +25,15 @@ export class TrackingService {
     ip?: string;
     userAgent?: string;
     referrer?: string;
-  }): Promise<{ tracked: boolean }> {
+  }): Promise<{ tracked: boolean; reason: string }> {
     const resolved = this.trackingTokenService.verifyToken(input.token);
     if (!resolved || resolved.type !== TrackingTokenType.OPEN) {
-      return { tracked: false };
+      return { tracked: false, reason: 'invalid_token' };
     }
 
     const context = await this.resolveRecipientContext(resolved);
     if (!context) {
-      return { tracked: false };
+      return { tracked: false, reason: 'recipient_context_not_found' };
     }
 
     const metadata = this.buildMetadata({
@@ -64,12 +64,12 @@ export class TrackingService {
         metadata,
         isUniqueForRecipient: unique,
       });
-      return { tracked: true };
+      return { tracked: true, reason: 'tracked' };
     } catch (error) {
       this.logger.warn(
         `Failed to persist open tracking event for campaignRecipient=${context.campaignRecipientId.toString()}: ${(error as Error).message}`,
       );
-      return { tracked: false };
+      return { tracked: false, reason: 'persist_failed' };
     }
   }
 
@@ -78,20 +78,22 @@ export class TrackingService {
     ip?: string;
     userAgent?: string;
     referrer?: string;
-  }): Promise<{ redirectUrl: string | null; tracked: boolean }> {
+  }): Promise<{ redirectUrl: string | null; tracked: boolean; reason: string }> {
     const resolved = this.trackingTokenService.verifyToken(input.token);
     if (!resolved || resolved.type !== TrackingTokenType.CLICK || !resolved.url) {
       return {
         redirectUrl: null,
         tracked: false,
+        reason: 'invalid_token',
       };
     }
 
     const context = await this.resolveRecipientContext(resolved);
     if (!context) {
       return {
-        redirectUrl: null,
+        redirectUrl: resolved.url,
         tracked: false,
+        reason: 'recipient_context_not_found',
       };
     }
 
@@ -127,6 +129,7 @@ export class TrackingService {
       return {
         redirectUrl: resolved.url,
         tracked: true,
+        reason: 'tracked',
       };
     } catch (error) {
       this.logger.warn(
@@ -135,6 +138,7 @@ export class TrackingService {
       return {
         redirectUrl: resolved.url,
         tracked: false,
+        reason: 'persist_failed',
       };
     }
   }

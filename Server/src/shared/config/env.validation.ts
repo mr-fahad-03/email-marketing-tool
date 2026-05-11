@@ -1,5 +1,41 @@
 ﻿import * as Joi from 'joi';
 
+const privateIpv4Ranges = [
+  /^10\./,
+  /^127\./,
+  /^169\.254\./,
+  /^172\.(1[6-9]|2\d|3[0-1])\./,
+  /^192\.168\./,
+  /^0\./,
+];
+
+function isLocalTrackingHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return (
+    normalized === 'localhost' ||
+    normalized === '::1' ||
+    normalized.endsWith('.localhost') ||
+    normalized.endsWith('.local') ||
+    privateIpv4Ranges.some((range) => range.test(normalized))
+  );
+}
+
+function publicHttpsTrackingUrl(
+  value: string,
+  helpers: Joi.CustomHelpers,
+): string | Joi.ErrorReport {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || isLocalTrackingHost(url.hostname)) {
+      return helpers.error('tracking.publicHttps');
+    }
+
+    return value;
+  } catch {
+    return helpers.error('tracking.publicHttps');
+  }
+}
+
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'test', 'staging', 'production')
@@ -34,9 +70,22 @@ export const envValidationSchema = Joi.object({
   WEBHOOK_PROCESSING_CONCURRENCY: Joi.number().integer().min(1).default(5),
   ANALYTICS_AGGREGATION_CONCURRENCY: Joi.number().integer().min(1).default(2),
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: Joi.string().allow('').default(''),
-  TRACKING_BASE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('http://localhost:5000'),
+  TRACKING_BASE_URL: Joi.when('NODE_ENV', {
+    is: Joi.valid('production', 'staging'),
+    then: Joi.string()
+      .trim()
+      .uri({ scheme: ['https'] })
+      .custom(publicHttpsTrackingUrl)
+      .required()
+      .messages({
+        'tracking.publicHttps':
+          'TRACKING_BASE_URL must be a public HTTPS URL in production or staging. Do not use localhost, private IPs, or http.',
+      }),
+    otherwise: Joi.string()
+      .trim()
+      .uri({ scheme: ['http', 'https'] })
+      .default('http://localhost:5000'),
+  }),
   TRACKING_TOKEN_TTL_SECONDS: Joi.number()
     .integer()
     .min(60)

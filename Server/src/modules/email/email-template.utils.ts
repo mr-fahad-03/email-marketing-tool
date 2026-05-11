@@ -46,7 +46,8 @@ export const injectEmailTrackingPlaceholders = (input: {
     html = html.replace(
       /href\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi,
       (full, doubleQuoted: string, singleQuoted: string, unquoted: string) => {
-        const url = (doubleQuoted ?? singleQuoted ?? unquoted ?? '').trim();
+        const rawUrl = (doubleQuoted ?? singleQuoted ?? unquoted ?? '').trim();
+        const url = decodeHtmlAttributeValue(rawUrl);
         if (!url || url.startsWith('{{TRACKED_LINK:')) {
           return full;
         }
@@ -114,6 +115,24 @@ const renderText = (
     unresolvedVariables: Array.from(unresolved),
   };
 };
+
+const decodeHtmlAttributeValue = (value: string): string =>
+  value.replace(/&(amp|lt|gt|quot|#39);/gi, (entity) => {
+    const normalized = entity.toLowerCase();
+    if (normalized === '&amp;') {
+      return '&';
+    }
+    if (normalized === '&lt;') {
+      return '<';
+    }
+    if (normalized === '&gt;') {
+      return '>';
+    }
+    if (normalized === '&quot;') {
+      return '"';
+    }
+    return "'";
+  });
 
 const resolvePath = (context: Record<string, unknown>, token: string): unknown => {
   const segments = token.split('.');

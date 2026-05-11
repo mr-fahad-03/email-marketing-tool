@@ -19,8 +19,9 @@ export class TrackingController {
     @Req() request: Request,
     @Res() response: Response,
   ): Promise<void> {
+    let result: { tracked: boolean; reason: string } = { tracked: false, reason: 'unknown' };
     try {
-      await this.trackingService.handleOpenTracking({
+      result = await this.trackingService.handleOpenTracking({
         token,
         ip: this.resolveIp(request),
         userAgent: request.get('user-agent') ?? undefined,
@@ -28,6 +29,10 @@ export class TrackingController {
       });
     } catch (error) {
       this.logger.warn(`Open tracking failed: ${(error as Error).message}`);
+    }
+
+    if (!result.tracked) {
+      this.logger.warn(`Open tracking not recorded: reason=${result.reason}`);
     }
 
     response.setHeader('Content-Type', 'image/gif');
@@ -43,9 +48,10 @@ export class TrackingController {
     @Req() request: Request,
     @Res() response: Response,
   ): Promise<void> {
-    let result: { redirectUrl: string | null; tracked: boolean } = {
+    let result: { redirectUrl: string | null; tracked: boolean; reason: string } = {
       redirectUrl: null,
       tracked: false,
+      reason: 'unknown',
     };
 
     try {
@@ -57,6 +63,10 @@ export class TrackingController {
       });
     } catch (error) {
       this.logger.warn(`Click tracking failed: ${(error as Error).message}`);
+    }
+
+    if (!result.tracked) {
+      this.logger.warn(`Click tracking not recorded: reason=${result.reason}`);
     }
 
     if (!result.redirectUrl) {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TrackingTokenService } from './tracking-token.service';
 
@@ -10,6 +10,7 @@ interface LinkContext {
 
 @Injectable()
 export class TrackingLinkService {
+  private readonly logger = new Logger(TrackingLinkService.name);
   private readonly trackingBaseUrl: string;
   private readonly apiPrefix: string;
 
@@ -17,10 +18,18 @@ export class TrackingLinkService {
     private readonly tokenService: TrackingTokenService,
     private readonly configService: ConfigService,
   ) {
-    this.trackingBaseUrl =
-      this.configService.get<string>('tracking.baseUrl', { infer: true }) ??
-      `http://localhost:${this.configService.get<number>('app.port', { infer: true }) ?? 5000}`;
-    this.apiPrefix = this.configService.get<string>('app.apiPrefix', { infer: true }) ?? '';
+    const configuredBaseUrl =
+      this.configService.get<string>('tracking.baseUrl', { infer: true })?.trim() ||
+      this.configService.get<string>('TRACKING_BASE_URL')?.trim();
+    const fallbackBaseUrl = `http://localhost:${
+      this.configService.get<number>('app.port', { infer: true }) ?? 5000
+    }`;
+
+    this.trackingBaseUrl = this.normalizeBaseUrl(configuredBaseUrl || fallbackBaseUrl);
+    this.apiPrefix = this.normalizeApiPrefix(
+      this.configService.get<string>('app.apiPrefix', { infer: true }) ?? '',
+    );
+    this.warnIfDevelopmentTrackingPointsRemote(configuredBaseUrl);
   }
 
   generateOpenTrackingUrl(context: LinkContext): string {
@@ -82,10 +91,80 @@ export class TrackingLinkService {
 
   private buildAbsolutePath(pathname: string): string {
     const cleanBase = this.trackingBaseUrl.replace(/\/+$/, '');
-    const cleanPrefix = this.apiPrefix ? `/${this.apiPrefix.replace(/^\/+|\/+$/g, '')}` : '';
+    const cleanPrefix = this.resolveApiPrefixForBaseUrl(cleanBase);
     const cleanPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
 
     return `${cleanBase}${cleanPrefix}${cleanPath}`;
+  }
+
+  private normalizeBaseUrl(value: string): string {
+    try {
+      const url = new URL(value);
+      url.hash = '';
+      url.search = '';
+      url.pathname = url.pathname.replace(/\/+$/, '');
+      return url.toString().replace(/\/+$/, '');
+    } catch {
+      throw new Error(`Invalid TRACKING_BASE_URL: ${value}`);
+    }
+  }
+
+  private normalizeApiPrefix(value: string): string {
+    return value.trim().replace(/^\/+|\/+$/g, '');
+  }
+
+  private warnIfDevelopmentTrackingPointsRemote(configuredBaseUrl?: string): void {
+    const nodeEnv = (this.configService.get<string>('app.nodeEnv', { infer: true }) ??
+      process.env.NODE_ENV ??
+      'development')
+      .trim()
+      .toLowerCase();
+
+    if (nodeEnv === 'production' || nodeEnv === 'staging' || !configuredBaseUrl) {
+      return;
+    }
+
+    try {
+      const trackingUrl = new URL(this.trackingBaseUrl);
+      if (this.isLocalHostname(trackingUrl.hostname)) {
+        return;
+      }
+
+      this.logger.warn(
+        `TRACKING_BASE_URL is set to a non-local host (${trackingUrl.origin}) while NODE_ENV=${nodeEnv}. Local open/click analytics will only appear in the backend served at that host.`,
+      );
+    } catch {
+      // URL validity is enforced earlier. Ignore secondary parse errors.
+    }
+  }
+
+  private isLocalHostname(hostname: string): boolean {
+    const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return (
+      normalized === 'localhost' ||
+      normalized === '127.0.0.1' ||
+      normalized === '::1' ||
+      normalized.endsWith('.localhost') ||
+      normalized.endsWith('.local')
+    );
+  }
+
+  private resolveApiPrefixForBaseUrl(baseUrl: string): string {
+    if (!this.apiPrefix) {
+      return '';
+    }
+
+    try {
+      const url = new URL(baseUrl);
+      const basePath = url.pathname.replace(/\/+$/, '');
+      if (basePath === `/${this.apiPrefix}` || basePath.endsWith(`/${this.apiPrefix}`)) {
+        return '';
+      }
+    } catch {
+      return `/${this.apiPrefix}`;
+    }
+
+    return `/${this.apiPrefix}`;
   }
 
   private isTrackableDestination(value: string): boolean {

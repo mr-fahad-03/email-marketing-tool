@@ -3,7 +3,7 @@ import 'reflect-metadata';
 import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { existsSync, mkdirSync } from 'fs';
 import { isAbsolute, join } from 'path';
 import { AppModule } from './app.module';
@@ -53,6 +53,7 @@ async function bootstrap(): Promise<void> {
   const templateLibraryDir = isAbsolute(configuredTemplateLibraryDir)
     ? configuredTemplateLibraryDir
     : join(process.cwd(), configuredTemplateLibraryDir);
+  const normalizedPrefix = apiPrefix ? `/${apiPrefix.replace(/^\/+|\/+$/g, '')}` : '';
 
   if (!existsSync(templateImagesDir)) {
     mkdirSync(templateImagesDir, { recursive: true });
@@ -63,6 +64,19 @@ async function bootstrap(): Promise<void> {
   app.use(templateImagesPublicPath, express.static(templateImagesDir));
   if (existsSync(templateLibraryDir)) {
     app.use(templateLibraryPublicPath, express.static(templateLibraryDir));
+  }
+
+  if (normalizedPrefix && normalizedPrefix !== '/tracking') {
+    app.use('/tracking', (request: Request, response: Response) => {
+      const targetPath = `${normalizedPrefix}/tracking${request.url}`;
+      response.redirect(307, targetPath);
+    });
+
+    const duplicatedTrackingPrefix = `${normalizedPrefix}${normalizedPrefix}/tracking`;
+    app.use(duplicatedTrackingPrefix, (request: Request, response: Response) => {
+      const targetPath = `${normalizedPrefix}/tracking${request.url}`;
+      response.redirect(307, targetPath);
+    });
   }
 
   app.enableCors({
@@ -90,7 +104,6 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port);
   const appUrl = await app.getUrl();
-  const normalizedPrefix = apiPrefix ? `/${apiPrefix.replace(/^\/+/, '')}` : '';
   logger.log(`Application is running at ${appUrl}${normalizedPrefix}`);
   logger.log(`Health check available at ${appUrl}/health`);
 }
