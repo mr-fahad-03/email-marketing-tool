@@ -105,6 +105,8 @@ export class TrackingService {
     });
 
     try {
+      await this.ensureOpenEventFromClick(context, metadata);
+
       const unique = await this.isUniqueEventForRecipient(
         context.campaignRecipientId,
         TrackingEventType.CLICK,
@@ -141,6 +143,48 @@ export class TrackingService {
         reason: 'persist_failed',
       };
     }
+  }
+
+  private async ensureOpenEventFromClick(
+    context: {
+      campaignId: Types.ObjectId;
+      campaignRecipientId: Types.ObjectId;
+      contactId: Types.ObjectId;
+    },
+    clickMetadata: Record<string, unknown>,
+  ): Promise<void> {
+    const existingOpen = await this.trackingEventModel
+      .exists({
+        campaignRecipientId: context.campaignRecipientId,
+        eventType: TrackingEventType.OPEN,
+      })
+      .exec();
+
+    if (existingOpen) {
+      return;
+    }
+
+    const openMetadata: Record<string, unknown> = {
+      ...clickMetadata,
+      inferredFrom: TrackingEventType.CLICK,
+    };
+
+    await this.trackingEventModel.create({
+      campaignId: context.campaignId,
+      campaignRecipientId: context.campaignRecipientId,
+      contactId: context.contactId,
+      eventType: TrackingEventType.OPEN,
+      metadata: openMetadata,
+    });
+
+    await this.trackingAggregationService.applyEvent({
+      campaignId: context.campaignId,
+      campaignRecipientId: context.campaignRecipientId,
+      contactId: context.contactId,
+      eventType: TrackingEventType.OPEN,
+      metadata: openMetadata,
+      isUniqueForRecipient: true,
+    });
   }
 
   private async resolveRecipientContext(resolved: {
