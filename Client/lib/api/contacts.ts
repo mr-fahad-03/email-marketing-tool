@@ -1,5 +1,6 @@
 import { apiRequest } from '@/lib/api/fetcher';
 import { normalizeContact } from '@/lib/api/contacts-internal';
+import { BACKEND_MAX_PAGE_LIMIT, clampPageLimit, fetchAllPages } from '@/lib/api/pagination';
 import type {
   ContactCategorySummaryResult,
   Contact,
@@ -132,7 +133,7 @@ function cleanPayload(values: ContactFormValues): Record<string, unknown> {
 }
 
 export async function getContacts(filters: ContactFilters = {}): Promise<ContactsListResult> {
-  const limit = filters.limit ?? 10;
+  const limit = clampPageLimit(filters.limit, 10);
   const payload = await apiRequest<unknown>({
     method: 'GET',
     url: '/contacts',
@@ -192,6 +193,21 @@ export async function getContacts(filters: ContactFilters = {}): Promise<Contact
     items: itemsRaw.map(normalizeContact),
     pagination: parsePagination(record, limit),
   };
+}
+
+export async function getAllContacts(filters: ContactFilters = {}): Promise<Contact[]> {
+  const merged = await fetchAllPages((page, limit) => getContacts({ ...filters, page, limit }), {
+    maxPages: 1000,
+    pageLimit: BACKEND_MAX_PAGE_LIMIT,
+    startPage: 1,
+  });
+
+  const uniqueById = new Map<string, Contact>();
+  for (const contact of merged) {
+    uniqueById.set(contact.id, contact);
+  }
+
+  return Array.from(uniqueById.values());
 }
 
 export async function getContactCategorySummary(): Promise<ContactCategorySummaryResult> {

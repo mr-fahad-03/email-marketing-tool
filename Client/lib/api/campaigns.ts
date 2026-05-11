@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { clampPageLimit } from '@/lib/api/pagination';
 import type {
   Campaign,
   CampaignBuilderValues,
@@ -213,7 +214,7 @@ export async function getCampaigns(params: {
   status?: string;
   search?: string;
 } = {}): Promise<CampaignsListResult> {
-  const limit = params.limit ?? 10;
+  const limit = clampPageLimit(params.limit, 10);
   const payload = await apiRequest<unknown>({
     method: 'GET',
     url: '/campaigns',
@@ -271,7 +272,7 @@ export async function getCampaignContacts(
   campaignId: string,
   params: { page?: number; limit?: number } = {},
 ): Promise<import('@/lib/types/contact').ContactsListResult> {
-  const limit = params.limit ?? 25;
+  const limit = clampPageLimit(params.limit, 25);
   const payload = await apiRequest<unknown>({
     method: 'GET',
     url: `/campaigns/${campaignId}/contacts`,

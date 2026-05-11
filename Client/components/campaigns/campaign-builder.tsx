@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createCampaign, deleteCampaign, getCampaignContacts, getCampaigns, startCampaign } from '@/lib/api/campaigns';
 import { bulkAddLabelToContacts, updateContact } from '@/lib/api/contacts';
-import { getContacts, getContactCategorySummary } from '@/lib/api/contacts';
+import { getAllContacts, getContacts, getContactCategorySummary } from '@/lib/api/contacts';
 import type { ContactCategorySummaryItem } from '@/lib/types/contact';
 import { getSegments } from '@/lib/api/segments';
 import { getSenderAccounts } from '@/lib/api/sender-accounts';
@@ -401,8 +401,8 @@ export function CampaignBuilder() {
 
       // If targeting by category, resolve all contact IDs for that category first
       if (values.targetMode === 'category' && values.categoryName) {
-        const result = await getContacts({ category: values.categoryName, page: 1, limit: 10000 });
-        resolvedContactIds = result.items.map((c) => c.id);
+        const categoryContacts = await getAllContacts({ category: values.categoryName });
+        resolvedContactIds = categoryContacts.map((contact) => contact.id);
         if (resolvedContactIds.length === 0) {
           toast.error(`No contacts found in category "${values.categoryName}".`);
           setIsLaunching(false);

@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { clampPageLimit } from '@/lib/api/pagination';
 import { env } from '@/lib/config/env';
 import { extractTemplateVariablesFromParts } from '@/lib/template-utils';
 import type {
@@ -175,7 +176,7 @@ function normalizeAssetUrl(value: string): string {
 }
 
 export async function getTemplates(filters: TemplatesQueryFilters = {}): Promise<TemplatesListResult> {
-  const limit = filters.limit ?? 10;
+  const limit = clampPageLimit(filters.limit, 10);
 
   const payload = await apiRequest<unknown>({
     method: 'GET',

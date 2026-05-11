@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { updateCampaign } from '@/lib/api/campaigns';
-import { getContacts, getContactCategorySummary } from '@/lib/api/contacts';
+import { getAllContacts, getContacts, getContactCategorySummary } from '@/lib/api/contacts';
 import { getSegments } from '@/lib/api/segments';
 import { getSenderAccounts } from '@/lib/api/sender-accounts';
 import { getTemplates } from '@/lib/api/templates';
@@ -222,8 +222,8 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
 
       // Resolve category → contact IDs at launch time
       if (values.targetMode === 'category' && values.categoryName) {
-        const result = await getContacts({ category: values.categoryName, page: 1, limit: 100 });
-        resolvedContactIds = result.items.map((c) => c.id);
+        const categoryContacts = await getAllContacts({ category: values.categoryName });
+        resolvedContactIds = categoryContacts.map((contact) => contact.id);
         if (resolvedContactIds.length === 0) {
           toast.error(`No contacts found in category "${values.categoryName}".`);
           setIsSubmitting(false);

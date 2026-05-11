@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { clampPageLimit } from '@/lib/api/pagination';
 import type {
   Segment,
   SegmentFilters,
@@ -124,7 +125,7 @@ function buildPayload(values: SegmentFormValues): Record<string, unknown> {
 }
 
 export async function getSegments(filters: SegmentQueryFilters = {}): Promise<SegmentsListResult> {
-  const limit = filters.limit ?? 10;
+  const limit = clampPageLimit(filters.limit, 10);
 
   const payload = await apiRequest<unknown>({
     method: 'GET',

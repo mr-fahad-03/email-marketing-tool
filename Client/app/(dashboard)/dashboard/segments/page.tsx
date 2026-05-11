@@ -318,7 +318,7 @@ export default function SegmentsPage() {
     try {
       const [campaignsRes, templatesRes] = await Promise.allSettled([
         getCampaigns({ page: pageNum, limit: 10 }),
-        getTemplates({ page: 1, limit: 200 }),
+        getTemplates({ page: 1, limit: 100 }),
       ]);
 
       if (campaignsRes.status === 'fulfilled') {

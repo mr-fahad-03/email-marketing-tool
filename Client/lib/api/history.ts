@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/fetcher';
+import { clampPageLimit } from '@/lib/api/pagination';
 import type {
   HistoryEvent,
   HistoryEventTypeFilter,
@@ -161,7 +162,7 @@ function toEventTypeQueryValue(filter: HistoryEventTypeFilter): string | undefin
 }
 
 export async function getHistory(filters: HistoryFilters = {}): Promise<HistoryListResult> {
-  const limit = filters.limit ?? DEFAULT_LIMIT;
+  const limit = clampPageLimit(filters.limit, DEFAULT_LIMIT);
   const eventTypeFilter = filters.eventType ?? 'all';
   const payload = await apiRequest<unknown>({
     method: 'GET',
