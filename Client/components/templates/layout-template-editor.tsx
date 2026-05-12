@@ -582,6 +582,171 @@ function toCssUrl(input: string): string {
   return `url("${trimmed.replaceAll('"', '\\"')}")`;
 }
 
+function normalizeHexColorForPicker(input: string): string | null {
+  const raw = input.trim();
+  if (!raw.startsWith('#')) {
+    return null;
+  }
+
+  let hex = raw.slice(1);
+  if (hex.length === 3 || hex.length === 4) {
+    hex = hex
+      .slice(0, 3)
+      .split('')
+      .map((part) => part + part)
+      .join('');
+  } else if (hex.length === 8) {
+    hex = hex.slice(0, 6);
+  }
+
+  if (hex.length !== 6 || !/^[\da-f]+$/i.test(hex)) {
+    return null;
+  }
+
+  return `#${hex.toLowerCase()}`;
+}
+
+function rgbColorToHex(input: string): string | null {
+  const match = input.trim().match(/^rgba?\((.*)\)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const values = match[1].split(',').map((value) => value.trim());
+  if (values.length < 3) {
+    return null;
+  }
+
+  const channels = values.slice(0, 3).map((value) => {
+    if (value.endsWith('%')) {
+      const percent = Number.parseFloat(value.slice(0, -1));
+      if (!Number.isFinite(percent)) {
+        return null;
+      }
+      return Math.round(Math.min(100, Math.max(0, percent)) * 2.55);
+    }
+
+    const numeric = Number.parseFloat(value);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+
+    return Math.round(Math.min(255, Math.max(0, numeric)));
+  });
+
+  if (channels.some((channel) => channel === null)) {
+    return null;
+  }
+
+  return `#${channels
+    .map((channel) => (channel as number).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function toColorPickerValue(input: string): string | null {
+  const direct = normalizeHexColorForPicker(input) ?? rgbColorToHex(input);
+  if (direct) {
+    return direct;
+  }
+
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const probe = window.document.createElement('span');
+  probe.style.color = '';
+  probe.style.color = input.trim();
+  if (!probe.style.color) {
+    return null;
+  }
+
+  return normalizeHexColorForPicker(probe.style.color) ?? rgbColorToHex(probe.style.color);
+}
+
+function extractBorderColor(input: string): string {
+  const raw = input.trim();
+  if (!raw) {
+    return '';
+  }
+
+  if (typeof window !== 'undefined') {
+    const probe = window.document.createElement('span');
+    probe.style.border = '';
+    probe.style.border = raw;
+    if (probe.style.borderColor) {
+      return probe.style.borderColor;
+    }
+  }
+
+  const match = raw.match(/#(?:[\da-f]{3,8})\b|rgba?\([^)]*\)|hsla?\([^)]*\)/i);
+  return match?.[0] ?? '';
+}
+
+function applyBorderColor(input: string, nextColor: string): string {
+  const color = nextColor.trim();
+  if (!color) {
+    return input;
+  }
+
+  const raw = input.trim();
+  if (typeof window !== 'undefined') {
+    const probe = window.document.createElement('span');
+    probe.style.border = '';
+    probe.style.border = raw;
+    const width = probe.style.borderWidth.trim();
+    const style = probe.style.borderStyle.trim();
+
+    if (width || style) {
+      return `${width || '1px'} ${style || 'solid'} ${color}`.trim();
+    }
+  }
+
+  if (!raw) {
+    return `1px solid ${color}`;
+  }
+
+  const colorMatch = /#(?:[\da-f]{3,8})\b|rgba?\([^)]*\)|hsla?\([^)]*\)/i;
+  if (colorMatch.test(raw)) {
+    return raw.replace(colorMatch, color);
+  }
+
+  return `${raw} ${color}`.trim();
+}
+
+interface ColorFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
+function ColorField({ label, value, onChange, placeholder = '#000000' }: ColorFieldProps) {
+  const pickerValue = useMemo(() => toColorPickerValue(value) ?? '#000000', [value]);
+
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold text-slate-700">{label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+          value={value}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <input
+          type="color"
+          className="h-9 w-10 cursor-pointer rounded border border-slate-300 bg-white p-1 outline-none focus:border-[#0b6886]"
+          value={pickerValue}
+          onChange={(event) => onChange(event.target.value)}
+          title={`Pick ${label.toLowerCase()}`}
+          aria-label={`${label} color picker`}
+        />
+      </div>
+    </label>
+  );
+}
+
 const STARTER_MJML = `<mjml>
   <mj-body background-color="#f5f5f5">
     <mj-section background-color="#ffffff" padding="24px 20px">
@@ -668,10 +833,12 @@ export function LayoutTemplateEditor({
   const sectionBackgroundTargetRef = useRef<GrapesComponentModel | null>(null);
   const applyImageManagerSelectionRef = useRef<(imageUrl: string) => void>(() => {});
   const onChangeRef = useRef(onChange);
+  const onDesignChangeRef = useRef(onDesignChange);
   const onMjmlChangeRef = useRef(onMjmlChange);
   const onUserEditRef = useRef(onUserEdit);
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshCanvasRef = useRef<(() => void) | null>(null);
+  const lastAppliedCanvasHeightRef = useRef(0);
   const suppressUserUpdateRef = useRef(true);
   const syncVersionRef = useRef(0);
   const lastHtmlRef = useRef(value);
@@ -1050,6 +1217,10 @@ export function LayoutTemplateEditor({
   }, [onChange]);
 
   useEffect(() => {
+    onDesignChangeRef.current = onDesignChange;
+  }, [onDesignChange]);
+
+  useEffect(() => {
     onMjmlChangeRef.current = onMjmlChange;
   }, [onMjmlChange]);
 
@@ -1058,10 +1229,10 @@ export function LayoutTemplateEditor({
   }, [onUserEdit]);
 
   useEffect(() => {
-    if (designJson && onDesignChange) {
-      onDesignChange(designJson);
+    if (designJson) {
+      onDesignChangeRef.current?.(designJson);
     }
-  }, [designJson, onDesignChange]);
+  }, [designJson]);
 
   useEffect(() => {
     let disposed = false;
@@ -1072,43 +1243,58 @@ export function LayoutTemplateEditor({
         return;
       }
 
-      const grapesjs = (await import('grapesjs')).default;
-      const grapesMjml = (await import('grapesjs-mjml')).default;
-      if (disposed || !containerRef.current) {
-        return;
-      }
+      try {
+        const grapesjsModule = await import('grapesjs');
+        const grapesMjmlModule = await import('grapesjs-mjml');
+        if (disposed || !containerRef.current) {
+          return;
+        }
 
-      const editor = grapesjs.init({
-        container: containerRef.current,
-        fromElement: false,
-        storageManager: false,
-        noticeOnUnload: false,
-        height: fullHeight ? '900px' : '78vh',
-        panels: fullHeight ? { defaults: [] } : undefined,
-        blockManager: fullHeight ? { appendTo: `#${layoutTargets.blocks}` } : undefined,
-        styleManager: fullHeight ? { appendTo: `#${layoutTargets.styles}` } : undefined,
-        traitManager: fullHeight ? { appendTo: `#${layoutTargets.traits}` } : undefined,
-        layerManager: fullHeight ? { appendTo: `#${layoutTargets.layers}` } : undefined,
-        deviceManager: fullHeight
-          ? {
-              devices: [
-                { id: 'Desktop', name: 'Desktop', width: '100%' },
-                { id: 'Mobile', name: 'Mobile', width: '375px', widthMedia: '480px' },
-              ],
-            }
-          : undefined,
-        plugins: [
-          (instance: unknown) =>
-            grapesMjml(instance as never, {
-              resetBlocks: true,
-              resetDevices: !fullHeight,
-              resetStyleManager: true,
-              hideSelector: false,
-              useCustomTheme: false,
-            }),
-        ],
-        components: initialMjmlRef.current,
-      }) as GrapesEditorInstance;
+        const grapesjsLib = (grapesjsModule.default ?? grapesjsModule) as {
+          init?: (config: Record<string, unknown>) => unknown;
+        };
+        const grapesMjmlPlugin = (grapesMjmlModule.default ?? grapesMjmlModule) as unknown;
+        if (typeof grapesjsLib.init !== 'function') {
+          throw new Error('GrapesJS init function is unavailable');
+        }
+        if (typeof grapesMjmlPlugin !== 'function') {
+          throw new Error('grapesjs-mjml plugin is unavailable');
+        }
+
+        const editor = grapesjsLib.init({
+          container: containerRef.current,
+          fromElement: false,
+          storageManager: false,
+          noticeOnUnload: false,
+          height: fullHeight ? '900px' : '78vh',
+          panels: fullHeight ? { defaults: [] } : undefined,
+          blockManager: fullHeight ? { appendTo: `#${layoutTargets.blocks}` } : undefined,
+          styleManager: fullHeight ? { appendTo: `#${layoutTargets.styles}` } : undefined,
+          traitManager: fullHeight ? { appendTo: `#${layoutTargets.traits}` } : undefined,
+          layerManager: fullHeight ? { appendTo: `#${layoutTargets.layers}` } : undefined,
+          deviceManager: fullHeight
+            ? {
+                devices: [
+                  { id: 'Desktop', name: 'Desktop', width: '100%' },
+                  { id: 'Mobile', name: 'Mobile', width: '375px', widthMedia: '480px' },
+                ],
+              }
+            : undefined,
+          plugins: [
+            (instance: unknown) =>
+              (grapesMjmlPlugin as (editorInstance: never, options: Record<string, unknown>) => unknown)(
+                instance as never,
+                {
+                  resetBlocks: true,
+                  resetDevices: !fullHeight,
+                  resetStyleManager: true,
+                  hideSelector: false,
+                  useCustomTheme: false,
+                },
+              ),
+          ],
+          components: initialMjmlRef.current,
+        }) as GrapesEditorInstance;
 
       editorRef.current = editor;
 
@@ -1139,27 +1325,42 @@ export function LayoutTemplateEditor({
           frameEl.setAttribute('scrolling', 'no');
         }
 
-        const frameRoot = frameDoc?.documentElement;
-        const contentHeight = Math.max(
+        const bodyChildren = frameBody
+          ? Array.from(frameBody.children) as HTMLElement[]
+          : [];
+        const childrenContentHeight = bodyChildren.reduce((maxHeight, child) => {
+          const childBottom = child.offsetTop + child.offsetHeight;
+          return Math.max(maxHeight, childBottom, child.scrollHeight);
+        }, 0);
+
+        // Measure only intrinsic content height. Using documentElement.scrollHeight here
+        // causes a feedback loop because it can include the iframe viewport height.
+        const intrinsicContentHeight = Math.max(
           frameBody?.scrollHeight ?? 0,
-          frameRoot?.scrollHeight ?? 0,
+          frameBody?.offsetHeight ?? 0,
+          childrenContentHeight,
           700,
         );
-        const adjustedHeight = `${contentHeight + 32}px`;
+        const targetHeight = Math.max(700, intrinsicContentHeight + 32);
+        const roundedTargetHeight = Math.ceil(targetHeight);
+        const adjustedHeight = `${roundedTargetHeight}px`;
 
         const editorEl = containerRef.current?.querySelector('.gjs-editor') as HTMLElement | null;
         const editorContEl = containerRef.current?.querySelector('.gjs-editor-cont') as HTMLElement | null;
         const canvasEl = containerRef.current?.querySelector('.gjs-cv-canvas') as HTMLElement | null;
         const frameWrapperEl = containerRef.current?.querySelector('.gjs-frame-wrapper') as HTMLElement | null;
 
-        if (containerRef.current) {
-          containerRef.current.style.height = adjustedHeight;
+        if (lastAppliedCanvasHeightRef.current !== roundedTargetHeight) {
+          lastAppliedCanvasHeightRef.current = roundedTargetHeight;
+          if (containerRef.current) {
+            containerRef.current.style.height = adjustedHeight;
+          }
+          if (editorEl) editorEl.style.height = adjustedHeight;
+          if (editorContEl) editorContEl.style.height = adjustedHeight;
+          if (canvasEl) canvasEl.style.height = adjustedHeight;
+          if (frameWrapperEl) frameWrapperEl.style.height = adjustedHeight;
+          if (frameEl) frameEl.style.height = adjustedHeight;
         }
-        if (editorEl) editorEl.style.height = adjustedHeight;
-        if (editorContEl) editorContEl.style.height = adjustedHeight;
-        if (canvasEl) canvasEl.style.height = adjustedHeight;
-        if (frameWrapperEl) frameWrapperEl.style.height = adjustedHeight;
-        if (frameEl) frameEl.style.height = adjustedHeight;
 
         if (frameDoc && !frameDoc.getElementById('mjml-frame-ux-fixes')) {
           const styleEl = frameDoc.createElement('style');
@@ -1408,6 +1609,9 @@ export function LayoutTemplateEditor({
           suppressUserUpdateRef.current = false;
         }, 0);
       });
+      } catch (error) {
+        console.error('[LayoutTemplateEditor] Failed to initialize editor', error);
+      }
     }
 
     void init();
@@ -1516,6 +1720,7 @@ export function LayoutTemplateEditor({
   const selectedBorderRadius =
     selectedAttributes['border-radius'] ?? selectedStyles['border-radius'] ?? '';
   const selectedBorder = selectedAttributes.border ?? selectedStyles.border ?? '';
+  const selectedBorderColor = extractBorderColor(selectedBorder);
   const selectedSectionAlign = selectedAttributes['text-align'] ?? selectedStyles['text-align'] ?? 'center';
   const selectedTextColor = selectedAttributes.color ?? selectedStyles.color ?? '';
   const selectedTextFontSize = selectedAttributes['font-size'] ?? selectedStyles['font-size'] ?? '';
@@ -1531,6 +1736,8 @@ export function LayoutTemplateEditor({
     selectedAttributes['background-color'] ?? selectedStyles['background-color'] ?? '';
   const selectedButtonTextColor = selectedAttributes.color ?? selectedStyles.color ?? '';
   const selectedButtonWidth = selectedAttributes.width ?? selectedStyles.width ?? '';
+  const selectedDividerColor =
+    selectedAttributes['border-color'] ?? selectedStyles['border-color'] ?? '';
   const selectedGenericHref = selectedAttributes.href ?? '';
   const selectedGenericTarget = normalizeLinkTarget(selectedAttributes.target);
   const selectedSectionLink = selectedAttributes[SECTION_LINK_HREF_ATTR] ?? '';
@@ -1539,6 +1746,7 @@ export function LayoutTemplateEditor({
   const isTextComponent = selectedType === 'mj-text';
   const isImageComponent = selectedType === 'mj-image';
   const isButtonComponent = selectedType === 'mj-button';
+  const isDividerComponent = selectedType === 'mj-divider';
   const selectedTextLinkState = isTextComponent
     ? getTextLinkStateFromComponent(selectedComponent)
     : { href: '', target: DEFAULT_LINK_TARGET };
@@ -1713,15 +1921,12 @@ export function LayoutTemplateEditor({
                             }}
                           />
                         </label>
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-semibold text-slate-700">Text color</span>
-                          <input
-                            type="text"
-                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
-                            value={selectedTextColor}
-                            onChange={(event) => updateSelectedAttributes({ color: event.target.value.trim() })}
-                          />
-                        </label>
+                        <ColorField
+                          label="Text color"
+                          value={selectedTextColor}
+                          onChange={(nextValue) => updateSelectedAttributes({ color: nextValue.trim() })}
+                          placeholder="#111827"
+                        />
                         <label className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Text size</span>
                           <input
@@ -1983,30 +2188,20 @@ export function LayoutTemplateEditor({
                             }}
                           />
                         </label>
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-semibold text-slate-700">Button color</span>
-                          <input
-                            type="text"
-                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
-                            value={selectedButtonBackgroundColor}
-                            placeholder="#0f766e"
-                            onChange={(event) =>
-                              updateSelectedAttributes({ 'background-color': event.target.value.trim() })
-                            }
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-semibold text-slate-700">Text color</span>
-                          <input
-                            type="text"
-                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
-                            value={selectedButtonTextColor}
-                            placeholder="#ffffff"
-                            onChange={(event) =>
-                              updateSelectedAttributes({ color: event.target.value.trim() })
-                            }
-                          />
-                        </label>
+                        <ColorField
+                          label="Button color"
+                          value={selectedButtonBackgroundColor}
+                          placeholder="#0f766e"
+                          onChange={(nextValue) =>
+                            updateSelectedAttributes({ 'background-color': nextValue.trim() })
+                          }
+                        />
+                        <ColorField
+                          label="Button text color"
+                          value={selectedButtonTextColor}
+                          placeholder="#ffffff"
+                          onChange={(nextValue) => updateSelectedAttributes({ color: nextValue.trim() })}
+                        />
                         <label className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Button size</span>
                           <input
@@ -2156,22 +2351,19 @@ export function LayoutTemplateEditor({
                     <div className="border-t border-slate-200 pt-3">
                       <div className="mb-2 text-xs font-semibold text-[#0b6886]">Component settings</div>
                       <div className="grid grid-cols-1 gap-3">
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-semibold text-slate-700">Background color</span>
-                          <input
-                            type="text"
-                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
-                            value={selectedBackgroundColor}
-                            onChange={(event) => {
-                              const nextValue = event.target.value.trim();
-                              if (isBackgroundCapableComponent) {
-                                updateSelectedAttributes({ 'background-color': nextValue });
-                              } else {
-                                updateSelectedStyle({ 'background-color': nextValue });
-                              }
-                            }}
-                          />
-                        </label>
+                        <ColorField
+                          label="Background color"
+                          value={selectedBackgroundColor}
+                          placeholder="#ffffff"
+                          onChange={(nextValue) => {
+                            const normalizedValue = nextValue.trim();
+                            if (isBackgroundCapableComponent) {
+                              updateSelectedAttributes({ 'background-color': normalizedValue });
+                            } else {
+                              updateSelectedStyle({ 'background-color': normalizedValue });
+                            }
+                          }}
+                        />
                         <div className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Background image</span>
                           {isSectionContainerComponent ? (
@@ -2296,6 +2488,26 @@ export function LayoutTemplateEditor({
                             }
                           />
                         </label>
+                        {isDividerComponent ? (
+                          <ColorField
+                            label="Divider color"
+                            value={selectedDividerColor}
+                            placeholder="#d1d5db"
+                            onChange={(nextValue) =>
+                              updateSelectedAttributes({ 'border-color': nextValue.trim() })
+                            }
+                          />
+                        ) : null}
+                        <ColorField
+                          label="Border color"
+                          value={selectedBorderColor}
+                          placeholder="#000000"
+                          onChange={(nextValue) =>
+                            updateSelectedAttributes({
+                              border: applyBorderColor(selectedBorder, nextValue),
+                            })
+                          }
+                        />
                         <label className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Contour</span>
                           <input

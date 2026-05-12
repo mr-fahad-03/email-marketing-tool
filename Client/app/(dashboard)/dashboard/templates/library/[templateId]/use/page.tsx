@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { ArrowLeft, Check, Save } from 'lucide-react';
 import { toast } from 'sonner';
@@ -68,6 +68,25 @@ function getDefaultValues(template: ProviderTemplateDetail | null): TemplateForm
     body: template?.html ?? '',
     status: 'active',
   };
+}
+
+function areDesignJsonEqual(
+  first: Record<string, unknown> | null | undefined,
+  second: Record<string, unknown> | null | undefined,
+): boolean {
+  if (first === second) {
+    return true;
+  }
+
+  if (!first || !second) {
+    return false;
+  }
+
+  try {
+    return JSON.stringify(first) === JSON.stringify(second);
+  } catch {
+    return false;
+  }
 }
 
 function FieldError({ message }: { message?: string }) {
@@ -243,6 +262,34 @@ export default function UseTemplatePage() {
     }
   });
 
+  const handleDesignChange = useCallback(
+    (design: Record<string, unknown> | null) => {
+      const currentDesign =
+        (form.getValues('designJson') as Record<string, unknown> | null | undefined) ?? null;
+      if (areDesignJsonEqual(currentDesign, design)) {
+        return;
+      }
+
+      form.setValue('designJson', design, {
+        shouldDirty: true,
+      });
+    },
+    [form],
+  );
+
+  const handleMjmlChange = useCallback(
+    (mjml: string | null) => {
+      if ((form.getValues('mjmlBody') ?? null) === mjml) {
+        return;
+      }
+
+      form.setValue('mjmlBody', mjml, {
+        shouldDirty: true,
+      });
+    },
+    [form],
+  );
+
   const finalizedName = useMemo(() => templateName.trim(), [templateName]);
 
   const handleFinalSave = async () => {
@@ -351,17 +398,9 @@ export default function UseTemplatePage() {
                       ? watchedDesignJson
                       : null
                   }
-                  onDesignChange={(design) => {
-                    form.setValue('designJson', design, {
-                      shouldDirty: true,
-                    });
-                  }}
+                  onDesignChange={handleDesignChange}
                   mjmlValue={form.getValues('mjmlBody') ?? null}
-                  onMjmlChange={(mjml) => {
-                    form.setValue('mjmlBody', mjml, {
-                      shouldDirty: true,
-                    });
-                  }}
+                  onMjmlChange={handleMjmlChange}
                   headerActions={
                     <>
                       <Button
