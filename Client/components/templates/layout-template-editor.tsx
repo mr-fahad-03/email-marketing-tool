@@ -150,6 +150,27 @@ function normalizeLinkTarget(input: string | null | undefined): string {
   return target || DEFAULT_LINK_TARGET;
 }
 
+function resolveOpenableHref(input: string): string | null {
+  const normalized = normalizeLinkInput(input);
+  if (!normalized || normalized === '#') {
+    return null;
+  }
+
+  if (/^(mailto:|tel:|sms:)/i.test(normalized)) {
+    return normalized;
+  }
+
+  try {
+    const parsed = new URL(normalized, window.location.origin);
+    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.hostname) {
+      return null;
+    }
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
 function collectionToComponents(collection: unknown): GrapesComponentModel[] {
   if (!collection) {
     return [];
@@ -1170,8 +1191,19 @@ export function LayoutTemplateEditor({
                 return;
               }
 
+              const openableHref = resolveOpenableHref(href);
+              if (!openableHref) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+
               const parentWindow = frameDoc.defaultView?.parent;
-              parentWindow?.open(href, '_blank');
+              try {
+                parentWindow?.open(openableHref, '_blank', 'noopener,noreferrer');
+              } catch {
+                // Invalid or blocked URLs should never crash the editor.
+              }
               event.preventDefault();
               event.stopPropagation();
             },
