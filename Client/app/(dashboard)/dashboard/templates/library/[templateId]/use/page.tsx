@@ -392,6 +392,18 @@ export default function UseTemplatePage() {
                       ) : null}
                     </>
                   }
+                  previewHeaderActions={
+                    canGoNext ? (
+                      <Button
+                        type="button"
+                        className="bg-cyan-100 text-[#0b5066] hover:bg-cyan-200"
+                        onClick={() => setIsNameStepOpen(true)}
+                      >
+                        <Check className="mr-1 h-4 w-4" />
+                        Next
+                      </Button>
+                    ) : null
+                  }
                   previewBlocked={hasUnsavedChanges}
                   onPreviewBlocked={() => {
                     toast.error('Please save your changes first, then open preview.');

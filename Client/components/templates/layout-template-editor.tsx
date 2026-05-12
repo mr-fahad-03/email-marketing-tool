@@ -15,6 +15,7 @@ interface LayoutTemplateEditorProps {
   mjmlValue?: string | null;
   onMjmlChange?: (mjml: string | null) => void;
   headerActions?: ReactNode;
+  previewHeaderActions?: ReactNode;
   fullHeight?: boolean;
   showHelpText?: boolean;
   previewBlocked?: boolean;
@@ -632,6 +633,7 @@ export function LayoutTemplateEditor({
   mjmlValue = null,
   onMjmlChange,
   headerActions,
+  previewHeaderActions,
   fullHeight = false,
   showHelpText = true,
   previewBlocked = false,
@@ -1041,7 +1043,7 @@ export function LayoutTemplateEditor({
     let assetModalObserver: MutationObserver | null = null;
 
     async function init() {
-      if (!containerRef.current || editorRef.current || previewMode) {
+      if (!containerRef.current || editorRef.current) {
         return;
       }
 
@@ -1378,6 +1380,20 @@ export function LayoutTemplateEditor({
   }, [fullHeight, layoutTargets.blocks, layoutTargets.layers, layoutTargets.styles, layoutTargets.traits]);
 
   useEffect(() => {
+    if (previewMode) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      refreshCanvasRef.current?.();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [previewMode]);
+
+  useEffect(() => {
     const editor = editorRef.current;
     if (!editor) {
       return;
@@ -1504,23 +1520,29 @@ export function LayoutTemplateEditor({
         <div className="mjml-shell__topbar flex items-center justify-between gap-3 border-b border-[#0c5f79] bg-[#064a63] px-4 py-2 text-white">
           <div className="text-sm font-semibold">Drag&Drop Editor</div>
           <div className="flex items-center gap-2">
-            {headerActions ? <div className="mr-2 flex items-center gap-2">{headerActions}</div> : null}
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#1d718d] bg-[#0f5b76] hover:bg-[#0c6784]"
-              onClick={() => editorRef.current?.UndoManager?.undo()}
-              title="Undo"
-            >
-              <Undo2 className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#1d718d] bg-[#0f5b76] hover:bg-[#0c6784]"
-              onClick={() => editorRef.current?.UndoManager?.redo()}
-              title="Redo"
-            >
-              <Redo2 className="h-4 w-4" />
-            </button>
+            {previewMode ? (
+              previewHeaderActions ? <div className="mr-2 flex items-center gap-2">{previewHeaderActions}</div> : null
+            ) : (
+              <>
+                {headerActions ? <div className="mr-2 flex items-center gap-2">{headerActions}</div> : null}
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#1d718d] bg-[#0f5b76] hover:bg-[#0c6784]"
+                  onClick={() => editorRef.current?.UndoManager?.undo()}
+                  title="Undo"
+                >
+                  <Undo2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#1d718d] bg-[#0f5b76] hover:bg-[#0c6784]"
+                  onClick={() => editorRef.current?.UndoManager?.redo()}
+                  title="Redo"
+                >
+                  <Redo2 className="h-4 w-4" />
+                </button>
+              </>
+            )}
             <button
               type="button"
               className={cn(
