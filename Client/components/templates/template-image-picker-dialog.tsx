@@ -3,6 +3,7 @@
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -25,6 +26,9 @@ export function TemplateImagePickerDialog({
       <DialogContent className="z-[10000] max-h-[92vh] w-[96vw] max-w-6xl overflow-y-auto border-zinc-200 bg-zinc-50 p-5 text-zinc-900">
         <DialogHeader>
           <DialogTitle>Image Manager</DialogTitle>
+          <DialogDescription className="sr-only">
+            Select an image from your library to insert into the email template.
+          </DialogDescription>
         </DialogHeader>
 
         <TemplateImageManagerPanel

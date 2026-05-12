@@ -1,9 +1,8 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { ArrowLeft, Check, Save } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,6 +15,7 @@ import { HttpClientError } from '@/lib/api/errors';
 import { createTemplate, getMjmlProviderTemplateById } from '@/lib/api/templates';
 import {
   clearLibraryTemplateDraft,
+  readLibraryTemplateDraft,
   saveLibraryTemplateDraft,
 } from '@/lib/templates/library-template-draft';
 import type { ProviderTemplateDetail, TemplateCategory } from '@/lib/types/template';
@@ -88,10 +88,12 @@ export default function UseTemplatePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isFinalSaving, setIsFinalSaving] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
   const [isDraftSaved, setIsDraftSaved] = useState(false);
   const [isNameStepOpen, setIsNameStepOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const autoSaveTimerRef = useRef<number | null>(null);
 
   const form = useForm<TemplateFormValues>({
     resolver: zodResolver(templateFormSchema) as never,
@@ -114,6 +116,9 @@ export default function UseTemplatePage() {
         if (!cancelled) {
           setProviderTemplate(detail);
           form.reset(getDefaultValues(detail));
+          setIsDraftSaved(false);
+          // Always start from the original library template when entering edit mode.
+          clearLibraryTemplateDraft(templateId);
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -156,6 +161,14 @@ export default function UseTemplatePage() {
     control: form.control,
     name: 'name',
   });
+  const watchedBody = useWatch({
+    control: form.control,
+    name: 'body',
+  });
+  const watchedMjmlBody = useWatch({
+    control: form.control,
+    name: 'mjmlBody',
+  });
 
   useEffect(() => {
     const name = (watchedName ?? '').trim();
@@ -173,6 +186,45 @@ export default function UseTemplatePage() {
       setIsNameStepOpen(false);
     }
   }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (isLoading || !providerTemplate || !hasUnsavedChanges) {
+      return;
+    }
+
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      try {
+        const values = form.getValues();
+        saveLibraryTemplateDraft(templateId, values);
+        form.reset(values);
+        setIsDraftSaved(true);
+      } catch {
+        setError('Failed to auto-save draft changes. Please try again.');
+      } finally {
+        autoSaveTimerRef.current = null;
+      }
+    }, 1000);
+
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [
+    form,
+    hasUnsavedChanges,
+    isLoading,
+    providerTemplate,
+    templateId,
+    watchedBody,
+    watchedDesignJson,
+    watchedMjmlBody,
+    watchedName,
+  ]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
     setIsSaving(true);
@@ -218,6 +270,43 @@ export default function UseTemplatePage() {
       toast.error(message);
     } finally {
       setIsFinalSaving(false);
+    }
+  };
+
+  const handleBackFromEditor = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to leave the editor? Your current changes will be auto-saved as a personal template.',
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const hasDraftSnapshot = Boolean(readLibraryTemplateDraft(templateId));
+    const shouldCreatePersonalTemplate = hasUnsavedChanges || isDraftSaved || hasDraftSnapshot;
+
+    if (!shouldCreatePersonalTemplate) {
+      router.push(`/dashboard/templates/library/${encodeURIComponent(templateId)}/preview`);
+      return;
+    }
+
+    setIsLeaving(true);
+    try {
+      const values = form.getValues();
+      const fallbackName = providerTemplate ? `${providerTemplate.name} copy` : 'Template copy';
+      const payload: TemplateFormValues = {
+        ...values,
+        name: (values.name ?? '').trim() || fallbackName,
+      };
+      await createTemplate(payload);
+      clearLibraryTemplateDraft(templateId);
+      toast.success('Changes auto-saved to Personal Templates.');
+      router.push('/dashboard/templates');
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setIsLeaving(false);
     }
   };
 
@@ -277,17 +366,16 @@ export default function UseTemplatePage() {
                         type="button"
                         variant="outline"
                         className="border-cyan-200 bg-white/95 text-[#0b5066] hover:bg-white"
-                        asChild
+                        onClick={() => void handleBackFromEditor()}
+                        disabled={isLeaving || isSaving || isFinalSaving}
                       >
-                        <Link href={`/dashboard/templates/library/${encodeURIComponent(templateId)}/preview`}>
-                          <ArrowLeft className="mr-1 h-4 w-4" />
-                          Back
-                        </Link>
+                        <ArrowLeft className="mr-1 h-4 w-4" />
+                        Back
                       </Button>
                       <Button
                         type="submit"
                         className="bg-white text-[#0b5066] hover:bg-cyan-50"
-                        disabled={isLoading || isSaving || !hasUnsavedChanges}
+                        disabled={isLoading || isSaving || isLeaving || !hasUnsavedChanges}
                       >
                         <Save className="mr-1 h-4 w-4" />
                         {isSaving ? 'Saving...' : 'Save'}

@@ -1,9 +1,9 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowLeft, Check, Save } from 'lucide-react';
+import { ArrowLeft, Check } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { EmailTemplateHtmlEditor } from '@/components/templates/email-template-html-editor';
@@ -81,6 +81,47 @@ function getDefaultValues(
   };
 }
 
+const NEW_TEMPLATE_DRAFT_KEY = 'template-new-draft';
+
+function saveNewTemplateDraft(values: TemplateFormValues): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.setItem(NEW_TEMPLATE_DRAFT_KEY, JSON.stringify(values));
+}
+
+function readNewTemplateDraft(): TemplateFormValues | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const raw = window.sessionStorage.getItem(NEW_TEMPLATE_DRAFT_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const result = templateFormSchema.safeParse(parsed);
+    if (!result.success) {
+      return null;
+    }
+
+    return result.data;
+  } catch {
+    return null;
+  }
+}
+
+function clearNewTemplateDraft(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.removeItem(NEW_TEMPLATE_DRAFT_KEY);
+}
+
 export default function NewTemplatePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -103,10 +144,10 @@ export default function NewTemplatePage() {
 
   const isLayoutNewFlow = editorMode === 'layout';
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isFinalSaving, setIsFinalSaving] = useState(false);
   const [isHtmlNameStepOpen, setIsHtmlNameStepOpen] = useState(false);
   const [htmlTemplateName, setHtmlTemplateName] = useState('');
+  const autoSaveTimerRef = useRef<number | null>(null);
 
   const form = useForm<TemplateFormValues>({
     resolver: zodResolver(templateFormSchema) as never,
@@ -148,12 +189,56 @@ export default function NewTemplatePage() {
   const watchedDesignJson = useWatch({ control: form.control, name: 'designJson' });
   const watchedMjmlBody = useWatch({ control: form.control, name: 'mjmlBody' }) ?? null;
   const watchedName = useWatch({ control: form.control, name: 'name' }) ?? '';
+  const watchedBody = useWatch({ control: form.control, name: 'body' }) ?? '';
+  const watchedSubject = useWatch({ control: form.control, name: 'subject' }) ?? '';
   const hasUnsavedChanges = form.formState.isDirty;
   const canGoNext = isDraftSaved && !hasUnsavedChanges;
 
   useEffect(() => {
     syncTemplateName(watchedName);
   }, [syncTemplateName, watchedName]);
+
+  useEffect(() => {
+    const draft = readNewTemplateDraft();
+    if (draft) {
+      form.reset(draft);
+      resetFlow(draft.name ?? '');
+      setHtmlTemplateName(draft.name ?? '');
+    }
+  }, [form, resetFlow]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) {
+      return;
+    }
+
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      const values = form.getValues();
+      saveNewTemplateDraft(values);
+      form.reset(values);
+      markDraftSaved();
+      autoSaveTimerRef.current = null;
+    }, 1000);
+
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [
+    form,
+    hasUnsavedChanges,
+    markDraftSaved,
+    watchedBody,
+    watchedDesignJson,
+    watchedMjmlBody,
+    watchedName,
+    watchedSubject,
+  ]);
 
   useEffect(() => {
     if (hasUnsavedChanges) {
@@ -173,22 +258,21 @@ export default function NewTemplatePage() {
     setIsHtmlNameStepOpen(true);
   };
 
-  const handleDraftSave = async () => {
-    const valid = await form.trigger(['subject', 'body']);
-    if (!valid) {
-      toast.error('Please complete required fields before saving.');
-      return;
+  const handleBack = async () => {
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm(
+        'You have unsaved changes. Press OK to save and go back, or Cancel to stay on this page.'
+      );
+      if (!confirmed) {
+        return;
+      }
+      const valid = await form.trigger(['subject', 'body']);
+      if (valid) {
+        saveNewTemplateDraft(form.getValues());
+        markDraftSaved();
+      }
     }
-
-    setIsSavingDraft(true);
-    try {
-      const values = form.getValues();
-      form.reset(values);
-      markDraftSaved();
-      toast.success('Changes saved.');
-    } finally {
-      setIsSavingDraft(false);
-    }
+    router.push('/dashboard/templates');
   };
 
   const handleFinalSave = async () => {
@@ -210,6 +294,7 @@ export default function NewTemplatePage() {
         name: finalizedName,
       };
       await createTemplate(payload);
+      clearNewTemplateDraft();
       toast.success('Template created successfully.');
       router.push('/dashboard/templates');
     } catch (error: unknown) {
@@ -295,19 +380,10 @@ export default function NewTemplatePage() {
                           type="button"
                           variant="outline"
                           className="border-cyan-200 bg-white/95 text-[#0b5066] hover:bg-white"
-                          onClick={() => router.push('/dashboard/templates')}
+                          onClick={() => void handleBack()}
                         >
                           <ArrowLeft className="mr-1 h-4 w-4" />
                           Back
-                        </Button>
-                        <Button
-                          type="button"
-                          className="bg-white text-[#0b5066] hover:bg-cyan-50"
-                          onClick={() => void handleDraftSave()}
-                          disabled={isSavingDraft || isFinalSaving || !hasUnsavedChanges}
-                        >
-                          <Save className="mr-1 h-4 w-4" />
-                          {isSavingDraft ? 'Saving...' : 'Save'}
                         </Button>
                         {canGoNext ? (
                           <Button

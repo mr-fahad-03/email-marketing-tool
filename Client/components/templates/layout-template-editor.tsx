@@ -1,6 +1,6 @@
 'use client';
 
-import { Eye, Laptop, Redo2, Smartphone, Undo2 } from 'lucide-react';
+import { Eye, Redo2, Undo2 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import 'grapesjs/dist/css/grapes.min.css';
 import { TemplateImagePickerDialog } from '@/components/templates/template-image-picker-dialog';
@@ -60,10 +60,13 @@ interface GrapesEditorInstance {
 interface GrapesComponentModel {
   get: (key: string) => unknown;
   set: (key: string, value: unknown, options?: { silent?: boolean }) => void;
+  parent?: () => GrapesComponentModel | null;
   getStyle: () => Record<string, string>;
   setStyle: (style: Record<string, string>) => void;
   getAttributes: () => Record<string, string>;
   setAttributes: (attrs: Record<string, string>) => void;
+  components?: (components?: unknown, opts?: unknown) => unknown;
+  find?: (query: string) => unknown[];
   toHTML?: () => string;
   getEl?: () => HTMLElement | null;
   getTrait?: (id: string) => unknown;
@@ -79,6 +82,115 @@ type TraitDefinition = {
   placeholder?: string;
   options?: TraitOption[];
 };
+type ImagePickerMode = 'image' | 'section-background';
+
+const DEFAULT_LINK_TARGET = '_self';
+const SECTION_LINK_HREF_ATTR = 'data-section-link-href';
+const SECTION_LINK_TARGET_ATTR = 'data-section-link-target';
+const INHERITED_SECTION_LINK_ATTR = 'data-inherited-section-link';
+
+const SECTION_CONTAINER_TYPES = new Set(['mj-section', 'mj-wrapper', 'mj-column', 'mj-hero']);
+const BACKGROUND_CAPABLE_TYPES = new Set([
+  'mj-section',
+  'mj-wrapper',
+  'mj-column',
+  'mj-hero',
+  'mj-body',
+]);
+const HREF_ATTRIBUTE_TYPES = new Set(['mj-image', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
+const SECTION_LINK_CHILD_TYPES = new Set(['mj-text', 'mj-image', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
+
+function isSectionContainerType(type: string): boolean {
+  return SECTION_CONTAINER_TYPES.has(type);
+}
+
+function isBackgroundCapableType(type: string): boolean {
+  return BACKGROUND_CAPABLE_TYPES.has(type);
+}
+
+function supportsHrefAttribute(type: string): boolean {
+  return HREF_ATTRIBUTE_TYPES.has(type);
+}
+
+function shouldReceiveSectionLink(type: string): boolean {
+  return SECTION_LINK_CHILD_TYPES.has(type);
+}
+
+function normalizeLinkInput(input: string): string {
+  const raw = input.trim().replace(/\s+/g, '');
+  if (!raw) {
+    return '';
+  }
+
+  if (
+    raw.startsWith('#') ||
+    /^https?:\/\//i.test(raw) ||
+    /^mailto:/i.test(raw) ||
+    /^tel:/i.test(raw) ||
+    /^sms:/i.test(raw) ||
+    /^ftp:\/\//i.test(raw)
+  ) {
+    return raw;
+  }
+
+  if (raw.startsWith('//')) {
+    return `https:${raw}`;
+  }
+
+  if (/^[a-z][a-z0-9+\-.]*:/i.test(raw)) {
+    return raw;
+  }
+
+  return `https://${raw}`;
+}
+
+function normalizeLinkTarget(input: string | null | undefined): string {
+  const target = (input ?? '').trim();
+  return target || DEFAULT_LINK_TARGET;
+}
+
+function collectionToComponents(collection: unknown): GrapesComponentModel[] {
+  if (!collection) {
+    return [];
+  }
+
+  if (Array.isArray(collection)) {
+    return collection as GrapesComponentModel[];
+  }
+
+  if (
+    typeof collection === 'object' &&
+    collection !== null &&
+    'models' in collection &&
+    Array.isArray((collection as { models?: unknown[] }).models)
+  ) {
+    return (collection as { models: GrapesComponentModel[] }).models;
+  }
+
+  if (typeof (collection as { forEach?: unknown }).forEach === 'function') {
+    const list: GrapesComponentModel[] = [];
+    (collection as { forEach: (callback: (item: unknown) => void) => void }).forEach((item) => {
+      list.push(item as GrapesComponentModel);
+    });
+    return list;
+  }
+
+  return [];
+}
+
+function getDescendantComponents(component: GrapesComponentModel): GrapesComponentModel[] {
+  const children = collectionToComponents(
+    component.components?.() ?? component.get?.('components') ?? null,
+  );
+  const descendants: GrapesComponentModel[] = [];
+
+  for (const child of children) {
+    descendants.push(child);
+    descendants.push(...getDescendantComponents(child));
+  }
+
+  return descendants;
+}
 
 function escapeHtmlAttr(value: string): string {
   return value
@@ -184,6 +296,19 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
     return '';
   }
 
+  const childComponents = collectionToComponents(
+    component.components?.() ?? component.get?.('components') ?? null,
+  );
+  if (childComponents.length) {
+    const childHtml = childComponents
+      .map((child) => child.toHTML?.() ?? String(child.get?.('content') ?? ''))
+      .join('')
+      .trim();
+    if (childHtml) {
+      return extractInnerTextHtmlCandidate(childHtml);
+    }
+  }
+
   const rawContent = String(component.get?.('content') ?? '').trim();
   if (rawContent) {
     return extractInnerTextHtmlCandidate(rawContent);
@@ -205,34 +330,130 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
   return '';
 }
 
-function applyTextLinkToComponent(
-  component: GrapesComponentModel,
-  input: { href: string; target?: string },
+function setComponentHtmlContent(component: GrapesComponentModel | null, html: string): void {
+  if (!component) {
+    return;
+  }
+
+  try {
+    component.components?.(html);
+    component.set('content', '');
+  } catch {
+    try {
+      component.set('content', html);
+    } catch {
+      // No-op: detached component views can throw during rapid edits.
+    }
+  }
+}
+
+function areEquivalentLinks(
+  first: { href: string; target: string },
+  second: { href: string; target: string },
+): boolean {
+  return normalizeLinkInput(first.href) === normalizeLinkInput(second.href) &&
+    normalizeLinkTarget(first.target) === normalizeLinkTarget(second.target);
+}
+
+function getTextLinkFromAnchor(component: GrapesComponentModel): { href: string; target: string } {
+  const anchor = extractWrapperAnchorDetails(getComponentEditableContent(component));
+  return {
+    href: normalizeLinkInput(anchor?.href ?? ''),
+    target: normalizeLinkTarget(anchor?.target),
+  };
+}
+
+function setTextLinkDataAttributes(
+  component: GrapesComponentModel | null,
+  next: { href: string; target: string },
 ): void {
-  const href = input.href.trim();
-  const target = input.target?.trim() || '_self';
-  const currentContent = getComponentEditableContent(component);
+  if (!component) {
+    return;
+  }
+
+  const nextHref = normalizeLinkInput(next.href);
+  const nextTarget = normalizeLinkTarget(next.target);
+
+  const attrs = component.getAttributes?.() ?? {};
+  const updatedAttrs = {
+    ...attrs,
+    'data-text-link-href': nextHref,
+    'data-text-link-target': nextTarget,
+  };
+
+  try {
+    component.setAttributes(updatedAttrs);
+  } catch {
+    // No-op: detached component views can throw during rapid edits.
+  }
+}
+
+function getTextLinkStateFromComponent(
+  component: GrapesComponentModel | null,
+): { href: string; target: string } {
+  if (!component || String(component.get('type') ?? '') !== 'mj-text') {
+    return { href: '', target: DEFAULT_LINK_TARGET };
+  }
+
+  const attrs = component.getAttributes?.() ?? {};
+  const hrefFromAttrs = normalizeLinkInput(attrs['data-text-link-href'] ?? '');
+  const targetFromAttrs = normalizeLinkTarget(attrs['data-text-link-target']);
+  if (hrefFromAttrs) {
+    return {
+      href: hrefFromAttrs,
+      target: targetFromAttrs,
+    };
+  }
+
+  return getTextLinkFromAnchor(component);
+}
+
+function applyTextLinkToComponent(
+  component: GrapesComponentModel | null,
+  input: { href: string; target?: string },
+  options?: { sourceHtml?: string },
+): void {
+  if (!component) {
+    return;
+  }
+
+  const href = normalizeLinkInput(input.href);
+  const target = normalizeLinkTarget(input.target);
+  const currentContent = (options?.sourceHtml ?? getComponentEditableContent(component)).trim();
   const cleanContent = stripAllAnchors(stripSingleWrapperAnchor(currentContent));
+  const fallbackText = component.getEl?.()?.textContent?.trim() ?? '';
+  const linkableContent = cleanContent.trim() ? cleanContent : plainTextToHtml(fallbackText);
 
   if (!href) {
     if (cleanContent !== currentContent) {
-      component.set('content', cleanContent);
+      setComponentHtmlContent(component, cleanContent);
+    }
+    try {
+      const attrsWithoutLink = { ...(component.getAttributes?.() ?? {}) };
+      delete attrsWithoutLink['data-text-link-href'];
+      delete attrsWithoutLink['data-text-link-target'];
+      component.setAttributes(attrsWithoutLink);
+    } catch {
+      // No-op: detached component views can throw during rapid edits.
     }
     return;
   }
 
   // Never overwrite content with an empty anchor.
-  if (!cleanContent.trim()) {
+  if (!linkableContent.trim()) {
     return;
   }
 
-  const wrappedBlockMatch = cleanContent.match(/^<(div|p|span)\b([^>]*)>([\s\S]*)<\/\1>$/i);
+  const wrappedBlockMatch = linkableContent.match(/^<(div|p|span)\b([^>]*)>([\s\S]*)<\/\1>$/i);
+  const anchorStyle = 'color:inherit;text-decoration:none;';
   const linkedContent = wrappedBlockMatch
-    ? `<${wrappedBlockMatch[1]}${wrappedBlockMatch[2]}><a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}">${wrappedBlockMatch[3]}</a></${wrappedBlockMatch[1]}>`
-    : `<a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}">${cleanContent}</a>`;
+    ? `<${wrappedBlockMatch[1]}${wrappedBlockMatch[2]}><a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}" style="${anchorStyle}">${wrappedBlockMatch[3]}</a></${wrappedBlockMatch[1]}>`
+    : `<a href="${escapeHtmlAttr(href)}" target="${escapeHtmlAttr(target)}" style="${anchorStyle}">${linkableContent}</a>`;
   if (linkedContent !== currentContent) {
-    component.set('content', linkedContent);
+    setComponentHtmlContent(component, linkedContent);
   }
+
+  setTextLinkDataAttributes(component, { href, target });
 }
 
 function migrateLegacyTextLinkAttributes(component: GrapesComponentModel): void {
@@ -241,27 +462,21 @@ function migrateLegacyTextLinkAttributes(component: GrapesComponentModel): void 
   }
 
   const attrs = component.getAttributes?.() ?? {};
-  const legacyHref = attrs['data-text-link-href']?.trim() ?? '';
-  const legacyTarget = attrs['data-text-link-target']?.trim() || '_self';
-  const hasLegacyAttrs =
-    Object.prototype.hasOwnProperty.call(attrs, 'data-text-link-href') ||
-    Object.prototype.hasOwnProperty.call(attrs, 'data-text-link-target');
-
-  if (legacyHref) {
-    applyTextLinkToComponent(component, {
-      href: legacyHref,
-      target: legacyTarget,
-    });
-  }
-
-  if (!hasLegacyAttrs) {
+  const legacyHref = normalizeLinkInput(attrs['data-text-link-href'] ?? '');
+  if (!legacyHref) {
     return;
   }
 
-  const nextAttrs = { ...attrs };
-  delete nextAttrs['data-text-link-href'];
-  delete nextAttrs['data-text-link-target'];
-  component.setAttributes(nextAttrs);
+  const legacyTarget = normalizeLinkTarget(attrs['data-text-link-target']);
+  const anchorLink = getTextLinkFromAnchor(component);
+  if (areEquivalentLinks(anchorLink, { href: legacyHref, target: legacyTarget })) {
+    return;
+  }
+
+  applyTextLinkToComponent(component, {
+    href: legacyHref,
+    target: legacyTarget,
+  });
 }
 
 function decodeHtmlEntities(input: string): string {
@@ -373,6 +588,30 @@ function ensureMjmlDocument(input: string | null | undefined): string {
   return STARTER_MJML;
 }
 
+function buildPreviewSrcDoc(source: string | null | undefined): string {
+  const content = (source ?? '').trim();
+  const injection =
+    '<base target="_blank"><script>document.addEventListener("click",function(event){const anchor=event.target.closest&&event.target.closest("a");if(anchor&&anchor.href){window.open(anchor.href,"_blank");event.preventDefault();}},true);</script>';
+
+  if (!content) {
+    return `<!doctype html><html><head>${injection}</head><body></body></html>`;
+  }
+
+  if (/<html[\s>]/i.test(content)) {
+    if (/<head[\s>]/i.test(content)) {
+      return content.replace(/<head([^>]*)>/i, `<head$1>${injection}`);
+    }
+    return content.replace(/<html([^>]*)>/i, `<html$1><head>${injection}</head>`);
+  }
+
+  const bodyMatch = content.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch) {
+    return `<!doctype html><html><head>${injection}</head><body>${bodyMatch[1]}</body></html>`;
+  }
+
+  return `<!doctype html><html><head>${injection}</head><body>${content}</body></html>`;
+}
+
 function toMjmlFromEditor(editor: GrapesEditorInstance): string {
   const wrapper = editor.getWrapper?.();
   const raw = wrapper?.toHTML?.() ?? wrapper?.getInnerHTML?.() ?? editor.getHtml();
@@ -401,6 +640,7 @@ export function LayoutTemplateEditor({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<GrapesEditorInstance | null>(null);
   const selectedComponentRef = useRef<GrapesComponentModel | null>(null);
+  const sectionBackgroundTargetRef = useRef<GrapesComponentModel | null>(null);
   const applyImageManagerSelectionRef = useRef<(imageUrl: string) => void>(() => {});
   const onChangeRef = useRef(onChange);
   const onMjmlChangeRef = useRef(onMjmlChange);
@@ -414,10 +654,10 @@ export function LayoutTemplateEditor({
   const [activeRightPanel, setActiveRightPanel] = useState<'styles' | 'traits' | 'layers'>(
     'styles',
   );
-  const [activeDevice, setActiveDevice] = useState<'Desktop' | 'Mobile'>('Desktop');
   const [previewMode, setPreviewMode] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState<GrapesComponentModel | null>(null);
   const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
+  const [imagePickerMode, setImagePickerMode] = useState<ImagePickerMode>('image');
   const [, forceSelectedComponentRefresh] = useState(0);
 
   const shellId = useMemo(() => `mjml-shell-${Math.random().toString(36).slice(2, 10)}`, []);
@@ -437,12 +677,6 @@ export function LayoutTemplateEditor({
       return;
     }
     setPreviewMode((prev) => !prev);
-  };
-
-  const setDevice = (name: 'Desktop' | 'Mobile') => {
-    editorRef.current?.setDevice?.(name);
-    setActiveDevice(name);
-    setTimeout(() => refreshCanvasRef.current?.(), 0);
   };
 
   const bumpSelectedComponent = () => {
@@ -478,15 +712,167 @@ export function LayoutTemplateEditor({
     selectedComponentRef.current = selectedComponent;
   }, [selectedComponent]);
 
-  const updateSelectedAttributes = (updates: Record<string, string>) => {
-    if (!selectedComponent) {
+  const patchComponentAttributes = (
+    component: GrapesComponentModel | null,
+    updates: Record<string, string>,
+    removeKeys: string[] = [],
+  ) => {
+    if (!component) {
       return;
     }
-    const attrs = selectedComponent.getAttributes?.() ?? {};
-    selectedComponent.setAttributes({
+
+    const attrs = component.getAttributes?.() ?? {};
+    const nextAttrs: Record<string, string> = {
       ...attrs,
       ...updates,
-    });
+    };
+
+    for (const key of removeKeys) {
+      delete nextAttrs[key];
+    }
+
+    try {
+      component.setAttributes(nextAttrs);
+    } catch {
+      // No-op: component may be detached while editing quickly.
+    }
+  };
+
+  const updateSelectedAttributes = (updates: Record<string, string>, removeKeys: string[] = []) => {
+    patchComponentAttributes(selectedComponent, updates, removeKeys);
+  };
+
+  const updateSelectedLinkAttribute = (
+    key: 'href' | 'target',
+    value: string,
+    component: GrapesComponentModel | null = selectedComponent,
+  ) => {
+    if (!component) {
+      return;
+    }
+
+    const nextValue = key === 'href' ? normalizeLinkInput(value) : value.trim();
+
+    patchComponentAttributes(component, { [key]: nextValue }, [INHERITED_SECTION_LINK_ATTR]);
+  };
+
+  const applyHrefToComponent = (
+    component: GrapesComponentModel,
+    input: { href: string; target?: string },
+    inherited: boolean,
+  ) => {
+    const type = String(component.get('type') ?? '');
+    const href = normalizeLinkInput(input.href);
+    const target = normalizeLinkTarget(input.target);
+    const attrs = component.getAttributes?.() ?? {};
+
+    if (type === 'mj-text') {
+      applyTextLinkToComponent(component, { href, target });
+      patchComponentAttributes(
+        component,
+        inherited ? { [INHERITED_SECTION_LINK_ATTR]: 'true' } : {},
+        inherited ? [] : [INHERITED_SECTION_LINK_ATTR],
+      );
+      return;
+    }
+
+    if (!supportsHrefAttribute(type)) {
+      return;
+    }
+
+    const resolvedTarget = inherited ? target : attrs.target?.trim() || target;
+
+    patchComponentAttributes(
+      component,
+      {
+        href,
+        target: resolvedTarget,
+        ...(inherited ? { [INHERITED_SECTION_LINK_ATTR]: 'true' } : {}),
+      },
+      inherited ? [] : [INHERITED_SECTION_LINK_ATTR],
+    );
+  };
+
+  const removeHrefFromComponent = (component: GrapesComponentModel) => {
+    const type = String(component.get('type') ?? '');
+    if (type === 'mj-text') {
+      applyTextLinkToComponent(component, { href: '', target: DEFAULT_LINK_TARGET });
+      patchComponentAttributes(component, {}, [INHERITED_SECTION_LINK_ATTR]);
+      return;
+    }
+
+    if (!supportsHrefAttribute(type)) {
+      patchComponentAttributes(component, {}, [INHERITED_SECTION_LINK_ATTR]);
+      return;
+    }
+
+    patchComponentAttributes(component, {}, ['href', 'target', INHERITED_SECTION_LINK_ATTR]);
+  };
+
+  const componentHasExplicitLink = (component: GrapesComponentModel): boolean => {
+    const type = String(component.get('type') ?? '');
+    const attrs = component.getAttributes?.() ?? {};
+    if (type === 'mj-text') {
+      const attrLink = normalizeLinkInput(attrs['data-text-link-href'] ?? '');
+      if (attrLink) {
+        return true;
+      }
+      return Boolean(extractWrapperAnchorDetails(getComponentEditableContent(component))?.href);
+    }
+
+    if (!supportsHrefAttribute(type)) {
+      return false;
+    }
+
+    return Boolean(attrs.href?.trim());
+  };
+
+  const applySectionLinkToComponent = (
+    component: GrapesComponentModel,
+    input: { href: string; target?: string },
+  ) => {
+    const sectionHref = normalizeLinkInput(input.href);
+    const sectionTarget = normalizeLinkTarget(input.target);
+
+    patchComponentAttributes(
+      component,
+      sectionHref
+        ? {
+            [SECTION_LINK_HREF_ATTR]: sectionHref,
+            [SECTION_LINK_TARGET_ATTR]: sectionTarget,
+          }
+        : {},
+      sectionHref ? [] : [SECTION_LINK_HREF_ATTR, SECTION_LINK_TARGET_ATTR],
+    );
+
+    const descendants = getDescendantComponents(component);
+    for (const child of descendants) {
+      const childType = String(child.get('type') ?? '');
+      if (!shouldReceiveSectionLink(childType)) {
+        continue;
+      }
+
+      const childAttrs = child.getAttributes?.() ?? {};
+      const inherited = childAttrs[INHERITED_SECTION_LINK_ATTR] === 'true';
+
+      if (!sectionHref) {
+        if (inherited) {
+          removeHrefFromComponent(child);
+        }
+        continue;
+      }
+
+      if (inherited || !componentHasExplicitLink(child)) {
+        applyHrefToComponent(
+          child,
+          {
+            href: sectionHref,
+            target: sectionTarget,
+          },
+          true,
+        );
+      }
+    }
   };
 
   const applyImageManagerSelection = (imageUrl: string) => {
@@ -496,10 +882,21 @@ export function LayoutTemplateEditor({
 
     editor?.AssetManager?.add?.({ src: imageUrl });
 
-    if (component && String(component.get?.('type') ?? '') === 'mj-image') {
-      const attrs = component.getAttributes?.() ?? {};
-      component.setAttributes({
-        ...attrs,
+    if (imagePickerMode === 'section-background') {
+      const sectionComponent = sectionBackgroundTargetRef.current ?? component;
+      if (sectionComponent) {
+        patchComponentAttributes(sectionComponent, {
+          'background-url': imageUrl,
+        });
+        editor?.select?.(sectionComponent);
+        setSelectedComponent(sectionComponent);
+        bumpSelectedComponent();
+        keepComponentSelected(sectionComponent);
+      }
+      sectionBackgroundTargetRef.current = null;
+      setImagePickerMode('image');
+    } else if (component && String(component.get?.('type') ?? '') === 'mj-image') {
+      patchComponentAttributes(component, {
         src: imageUrl,
       });
       editor?.select?.(component);
@@ -520,10 +917,23 @@ export function LayoutTemplateEditor({
       return;
     }
     const current = selectedComponent.getStyle?.() ?? {};
-    selectedComponent.setStyle({
-      ...current,
-      ...updates,
-    });
+    try {
+      selectedComponent.setStyle({
+        ...current,
+        ...updates,
+      });
+    } catch {
+      // No-op: component may be detached while editing quickly.
+    }
+  };
+
+  const openSectionBackgroundImagePicker = () => {
+    if (!selectedComponent) {
+      return;
+    }
+    sectionBackgroundTargetRef.current = selectedComponent;
+    setImagePickerMode('section-background');
+    setIsImagePickerOpen(true);
   };
 
   const ensureComponentTraits = (component: unknown) => {
@@ -560,7 +970,7 @@ export function LayoutTemplateEditor({
           name: 'target',
           label: 'Link Target',
           options: [
-            { id: '', label: 'Same tab' },
+            { id: DEFAULT_LINK_TARGET, label: 'Same tab' },
             { id: '_blank', label: 'New tab' },
           ],
         },
@@ -578,7 +988,7 @@ export function LayoutTemplateEditor({
           name: 'target',
           label: 'Link Target',
           options: [
-            { id: '', label: 'Same tab' },
+            { id: DEFAULT_LINK_TARGET, label: 'Same tab' },
             { id: '_blank', label: 'New tab' },
           ],
         },
@@ -600,7 +1010,7 @@ export function LayoutTemplateEditor({
           name: 'target',
           label: 'Link Target',
           options: [
-            { id: '', label: 'Same tab' },
+            { id: DEFAULT_LINK_TARGET, label: 'Same tab' },
             { id: '_blank', label: 'New tab' },
           ],
         },
@@ -617,21 +1027,8 @@ export function LayoutTemplateEditor({
   }, [onMjmlChange]);
 
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || !fullHeight) {
-      return;
-    }
-
-    try {
-      if (previewMode) {
-        editor.runCommand?.('preview');
-      } else {
-        editor.stopCommand?.('preview');
-      }
-    } catch {
-      // Keep UI responsive even if command state is temporarily unavailable.
-    }
-  }, [fullHeight, previewMode]);
+    onMjmlChangeRef.current = onMjmlChange;
+  }, [onMjmlChange]);
 
   useEffect(() => {
     if (designJson && onDesignChange) {
@@ -644,7 +1041,7 @@ export function LayoutTemplateEditor({
     let assetModalObserver: MutationObserver | null = null;
 
     async function init() {
-      if (!containerRef.current || editorRef.current) {
+      if (!containerRef.current || editorRef.current || previewMode) {
         return;
       }
 
@@ -755,6 +1152,30 @@ export function LayoutTemplateEditor({
           `;
           frameDoc.head.appendChild(styleEl);
         }
+
+        if (frameDoc && !frameDoc.documentElement.dataset.mjmlLinkClickHandlerAttached) {
+          frameDoc.documentElement.dataset.mjmlLinkClickHandlerAttached = 'true';
+          frameDoc.addEventListener(
+            'click',
+            (event) => {
+              const anchor = (event.target as Element | null)?.closest('a');
+              if (!anchor || !anchor.href) {
+                return;
+              }
+
+              const href = anchor.getAttribute('href')?.trim();
+              if (!href) {
+                return;
+              }
+
+              const parentWindow = frameDoc.defaultView?.parent;
+              parentWindow?.open(href, '_blank');
+              event.preventDefault();
+              event.stopPropagation();
+            },
+            true,
+          );
+        }
       };
 
       refreshCanvasRef.current = ensureCanvasScroll;
@@ -773,6 +1194,8 @@ export function LayoutTemplateEditor({
             event.stopPropagation();
             editor.AssetManager?.close?.();
             editor.Modal?.close?.();
+            setImagePickerMode('image');
+            sectionBackgroundTargetRef.current = null;
             setIsImagePickerOpen(true);
           });
 
@@ -846,6 +1269,49 @@ export function LayoutTemplateEditor({
           bumpSelectedComponent();
         }
       });
+      editor.on('component:add', (component) => {
+        const child = component as GrapesComponentModel;
+        const childType = String(child.get('type') ?? '');
+        if (!shouldReceiveSectionLink(childType)) {
+          return;
+        }
+
+        if (componentHasExplicitLink(child)) {
+          return;
+        }
+
+        let parent = child.parent?.() ?? null;
+        while (parent) {
+          const parentType = String(parent.get('type') ?? '');
+          if (!isSectionContainerType(parentType)) {
+            parent = parent.parent?.() ?? null;
+            continue;
+          }
+
+          const parentAttrs = parent.getAttributes?.() ?? {};
+          const inheritedHref = normalizeLinkInput(parentAttrs[SECTION_LINK_HREF_ATTR] ?? '');
+          if (!inheritedHref) {
+            parent = parent.parent?.() ?? null;
+            continue;
+          }
+
+          const inheritedTarget = normalizeLinkTarget(parentAttrs[SECTION_LINK_TARGET_ATTR]);
+          if (childType === 'mj-text') {
+            applyTextLinkToComponent(child, {
+              href: inheritedHref,
+              target: inheritedTarget,
+            });
+            patchComponentAttributes(child, { [INHERITED_SECTION_LINK_ATTR]: 'true' });
+          } else if (supportsHrefAttribute(childType)) {
+            patchComponentAttributes(child, {
+              href: inheritedHref,
+              target: inheritedTarget,
+              [INHERITED_SECTION_LINK_ATTR]: 'true',
+            });
+          }
+          break;
+        }
+      });
       editor.on('component:update', (component) => {
         const cmp = component as GrapesComponentModel;
         if (selectedComponentRef.current && cmp === selectedComponentRef.current) {
@@ -903,7 +1369,7 @@ export function LayoutTemplateEditor({
       if (updateTimerRef.current) {
         clearTimeout(updateTimerRef.current);
       }
-      if (editorRef.current) {
+        if (editorRef.current) {
         editorRef.current.destroy();
         editorRef.current = null;
       }
@@ -957,47 +1423,62 @@ export function LayoutTemplateEditor({
   const selectedAttributes = selectedComponent?.getAttributes?.() ?? {};
   const selectedStyles = selectedComponent?.getStyle?.() ?? {};
   const selectedTextContent = htmlToPlainText(getComponentEditableContent(selectedComponent));
+  const isSectionContainerComponent = isSectionContainerType(selectedType);
+  const isBackgroundCapableComponent = isBackgroundCapableType(selectedType);
   const selectedImageSrc = selectedAttributes.src ?? '';
   const selectedImageAlt = selectedAttributes.alt ?? '';
   const selectedImageTitle = selectedAttributes.title ?? '';
   const selectedImageHref = selectedAttributes.href ?? '';
-  const selectedImageTarget = selectedAttributes.target ?? '';
+  const selectedImageTarget = normalizeLinkTarget(selectedAttributes.target);
   const selectedImageMaxWidth = selectedAttributes.width ?? selectedStyles.width ?? '';
   const selectedImageAlign = selectedAttributes.align ?? selectedStyles['text-align'] ?? 'center';
   const selectedHoverImage = selectedAttributes['data-hover-src'] ?? '';
   const selectedBackgroundColor =
-    selectedStyles['background-color'] ?? selectedAttributes['background-color'] ?? '';
-  const selectedBackgroundImage = fromCssUrl(selectedStyles['background-image'] ?? '');
+    selectedAttributes['background-color'] ?? selectedStyles['background-color'] ?? '';
+  const selectedBackgroundImage =
+    selectedAttributes['background-url'] ?? fromCssUrl(selectedStyles['background-image'] ?? '');
   const selectedPaddingTop =
-    selectedStyles['padding-top'] ?? selectedAttributes['padding-top'] ?? '';
+    selectedAttributes['padding-top'] ?? selectedStyles['padding-top'] ?? '';
   const selectedPaddingRight =
-    selectedStyles['padding-right'] ?? selectedAttributes['padding-right'] ?? '';
+    selectedAttributes['padding-right'] ?? selectedStyles['padding-right'] ?? '';
   const selectedPaddingBottom =
-    selectedStyles['padding-bottom'] ?? selectedAttributes['padding-bottom'] ?? '';
+    selectedAttributes['padding-bottom'] ?? selectedStyles['padding-bottom'] ?? '';
   const selectedPaddingLeft =
-    selectedStyles['padding-left'] ?? selectedAttributes['padding-left'] ?? '';
-  const selectedHeight = selectedStyles.height ?? selectedAttributes.height ?? '';
+    selectedAttributes['padding-left'] ?? selectedStyles['padding-left'] ?? '';
+  const selectedHeight = selectedAttributes.height ?? selectedStyles.height ?? '';
   const selectedBorderRadius =
-    selectedStyles['border-radius'] ?? selectedAttributes['border-radius'] ?? '';
-  const selectedBorder = selectedStyles.border ?? selectedAttributes.border ?? '';
-  const selectedTextColor = selectedStyles.color ?? selectedAttributes.color ?? '';
-  const selectedFontFamily = selectedStyles['font-family'] ?? selectedAttributes['font-family'] ?? '';
-  const selectedLineHeight = selectedStyles['line-height'] ?? selectedAttributes['line-height'] ?? '';
+    selectedAttributes['border-radius'] ?? selectedStyles['border-radius'] ?? '';
+  const selectedBorder = selectedAttributes.border ?? selectedStyles.border ?? '';
+  const selectedSectionAlign = selectedAttributes['text-align'] ?? selectedStyles['text-align'] ?? 'center';
+  const selectedTextColor = selectedAttributes.color ?? selectedStyles.color ?? '';
+  const selectedTextFontSize = selectedAttributes['font-size'] ?? selectedStyles['font-size'] ?? '';
+  const selectedFontFamily = selectedAttributes['font-family'] ?? selectedStyles['font-family'] ?? '';
+  const selectedLineHeight = selectedAttributes['line-height'] ?? selectedStyles['line-height'] ?? '';
+  const selectedTextAlign = selectedAttributes.align ?? selectedStyles['text-align'] ?? 'left';
   const selectedButtonText = selectedTextContent;
   const selectedButtonHref = selectedAttributes.href ?? '';
-  const selectedButtonTarget = selectedAttributes.target ?? '';
+  const selectedButtonTarget = normalizeLinkTarget(selectedAttributes.target);
   const selectedButtonTitle = selectedAttributes.title ?? '';
+  const selectedButtonAlign = selectedAttributes.align ?? selectedStyles['text-align'] ?? 'center';
+  const selectedButtonBackgroundColor =
+    selectedAttributes['background-color'] ?? selectedStyles['background-color'] ?? '';
+  const selectedButtonTextColor = selectedAttributes.color ?? selectedStyles.color ?? '';
+  const selectedButtonWidth = selectedAttributes.width ?? selectedStyles.width ?? '';
   const selectedGenericHref = selectedAttributes.href ?? '';
-  const selectedGenericTarget = selectedAttributes.target ?? '';
+  const selectedGenericTarget = normalizeLinkTarget(selectedAttributes.target);
+  const selectedSectionLink = selectedAttributes[SECTION_LINK_HREF_ATTR] ?? '';
+  const selectedSectionLinkTarget = normalizeLinkTarget(selectedAttributes[SECTION_LINK_TARGET_ATTR]);
 
   const isTextComponent = selectedType === 'mj-text';
   const isImageComponent = selectedType === 'mj-image';
   const isButtonComponent = selectedType === 'mj-button';
-  const selectedTextAnchor = isTextComponent
-    ? extractWrapperAnchorDetails(getComponentEditableContent(selectedComponent))
-    : null;
-  const selectedTextLink = selectedTextAnchor?.href ?? '';
-  const selectedTextLinkTarget = selectedTextAnchor?.target ?? '_self';
+  const selectedTextLinkState = isTextComponent
+    ? getTextLinkStateFromComponent(selectedComponent)
+    : { href: '', target: DEFAULT_LINK_TARGET };
+  const selectedTextLink = selectedTextLinkState.href;
+  const selectedTextLinkTarget = selectedTextLinkState.target;
+  const isTextLinkEnabled = Boolean(selectedTextLink.trim());
+  const isSectionLinkEnabled = Boolean(selectedSectionLink.trim());
   const isLinkableComponent =
     isImageComponent ||
     isButtonComponent ||
@@ -1024,30 +1505,6 @@ export function LayoutTemplateEditor({
           <div className="text-sm font-semibold">Drag&Drop Editor</div>
           <div className="flex items-center gap-2">
             {headerActions ? <div className="mr-2 flex items-center gap-2">{headerActions}</div> : null}
-            <div className="inline-flex overflow-hidden rounded-md border border-[#1d718d] bg-[#0f5b76]">
-              <button
-                type="button"
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 px-3 text-xs font-medium',
-                  activeDevice === 'Desktop' ? 'bg-[#0a6f90]' : 'hover:bg-[#0c6784]',
-                )}
-                onClick={() => setDevice('Desktop')}
-              >
-                <Laptop className="h-3.5 w-3.5" />
-                Desktop
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 border-l border-[#1d718d] px-3 text-xs font-medium',
-                  activeDevice === 'Mobile' ? 'bg-[#0a6f90]' : 'hover:bg-[#0c6784]',
-                )}
-                onClick={() => setDevice('Mobile')}
-              >
-                <Smartphone className="h-3.5 w-3.5" />
-                Mobile
-              </button>
-            </div>
             <button
               type="button"
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#1d718d] bg-[#0f5b76] hover:bg-[#0c6784]"
@@ -1070,25 +1527,52 @@ export function LayoutTemplateEditor({
                 'inline-flex h-8 items-center gap-1 rounded-md border px-3 text-xs font-semibold',
                 previewMode
                   ? 'border-[#99d9f0] bg-[#cfeef9] text-[#0a4f68]'
-                  : previewBlocked
-                    ? 'cursor-not-allowed border-[#1d718d] bg-[#0f5b76] text-white/70'
-                    : 'border-[#1d718d] bg-[#0f5b76] text-white hover:bg-[#0c6784]',
+                  : 'border-[#1d718d] bg-[#0f5b76] text-white hover:bg-[#0c6784]',
               )}
               onClick={runPreviewToggle}
             >
               <Eye className="h-3.5 w-3.5" />
-              Preview
+              {previewMode ? 'Back to editor' : 'Preview'}
             </button>
           </div>
         </div>
 
-        <div className="grid h-full min-h-0 flex-1 grid-cols-[108px_minmax(0,1fr)_320px] overflow-hidden">
-          <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-300 bg-[#eef3f6] p-2">
-            <div className="rounded-md border border-[#cdd7df] bg-white p-2 text-center text-xs font-semibold text-[#1f4f68]">
-              Blocks
+        {previewMode ? (
+          <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#dfe3e7] p-4">
+            <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[1.4fr_0.7fr]">
+              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-300 bg-white">
+                <div className="border-b px-4 py-3 text-sm font-semibold text-slate-700">Desktop preview</div>
+                <iframe
+                  className="h-full w-full border-0"
+                  srcDoc={buildPreviewSrcDoc(value)}
+                  title="Desktop preview"
+                />
+              </div>
+              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-300 bg-white">
+                <div className="border-b px-4 py-3 text-sm font-semibold text-slate-700">Mobile preview</div>
+                <div className="flex h-full min-h-0 items-center justify-center bg-slate-100 p-3">
+                  <iframe
+                    className="h-full w-full max-w-[375px] border border-slate-200"
+                    srcDoc={buildPreviewSrcDoc(value)}
+                    title="Mobile preview"
+                  />
+                </div>
+              </div>
             </div>
-            <div id={layoutTargets.blocks} className="editor-pane-scroll mt-2 min-h-0 flex-1 overflow-y-auto" />
-          </aside>
+          </main>
+        ) : null}
+        <div
+          className={cn(
+            'grid h-full min-h-0 flex-1 grid-cols-[108px_minmax(0,1fr)_320px] overflow-hidden',
+            previewMode && 'hidden',
+          )}
+        >
+            <aside className="flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-300 bg-[#eef3f6] p-2">
+              <div className="rounded-md border border-[#cdd7df] bg-white p-2 text-center text-xs font-semibold text-[#1f4f68]">
+                Blocks
+              </div>
+              <div id={layoutTargets.blocks} className="editor-pane-scroll mt-2 min-h-0 flex-1 overflow-y-auto" />
+            </aside>
 
           <main className="relative min-h-0 min-w-0 overflow-y-auto overflow-x-hidden bg-[#dfe3e7]">
             <div className="min-h-full w-full px-4 py-4">
@@ -1138,16 +1622,21 @@ export function LayoutTemplateEditor({
                             value={selectedTextContent}
                             onChange={(event) => {
                               const nextTextHtml = plainTextToHtml(event.target.value);
-                              if (!selectedTextLink) {
-                                selectedComponent.set('content', nextTextHtml);
+                              setComponentHtmlContent(selectedComponent, nextTextHtml);
+                              const currentTextLinkState = getTextLinkStateFromComponent(selectedComponent);
+                              if (!currentTextLinkState.href) {
+                                patchComponentAttributes(selectedComponent, {}, [
+                                  'data-text-link-href',
+                                  'data-text-link-target',
+                                ]);
                               } else {
-                                const target = selectedTextLinkTarget || '_self';
-                                selectedComponent.set(
-                                  'content',
-                                  `<a href="${escapeHtmlAttr(selectedTextLink)}" target="${escapeHtmlAttr(target)}">${nextTextHtml}</a>`,
-                                );
+                                applyTextLinkToComponent(selectedComponent, {
+                                  href: currentTextLinkState.href,
+                                  target: currentTextLinkState.target,
+                                }, { sourceHtml: nextTextHtml });
                               }
                               keepComponentSelected(selectedComponent);
+                              refreshCanvasRef.current?.();
                             }}
                           />
                         </label>
@@ -1157,7 +1646,21 @@ export function LayoutTemplateEditor({
                             type="text"
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedTextColor}
-                            onChange={(event) => updateSelectedStyle({ color: event.target.value })}
+                            onChange={(event) => updateSelectedAttributes({ color: event.target.value.trim() })}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Text size</span>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedTextFontSize}
+                            placeholder="14px"
+                            onChange={(event) =>
+                              updateSelectedAttributes({
+                                'font-size': event.target.value.trim() ? pxValue(event.target.value) : '',
+                              })
+                            }
                           />
                         </label>
                         <label className="block">
@@ -1165,7 +1668,9 @@ export function LayoutTemplateEditor({
                           <select
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedFontFamily}
-                            onChange={(event) => updateSelectedStyle({ 'font-family': event.target.value })}
+                            onChange={(event) =>
+                              updateSelectedAttributes({ 'font-family': event.target.value })
+                            }
                           >
                             <option value="">Default</option>
                             <option value="Arial, sans-serif">Arial</option>
@@ -1184,14 +1689,51 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedLineHeight}
                             onChange={(event) =>
-                              updateSelectedStyle({
+                              updateSelectedAttributes({
                                 'line-height': event.target.value.trim() ? pxValue(event.target.value) : '',
                               })
                             }
                           />
                         </label>
                         <label className="block">
-                          <span className="mb-1 block text-xs font-semibold text-slate-700">Add a link</span>
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Alignment</span>
+                          <select
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedTextAlign}
+                            onChange={(event) => updateSelectedAttributes({ align: event.target.value })}
+                          >
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                          </select>
+                        </label>
+                        <div className="space-y-2">
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={isTextLinkEnabled}
+                              onChange={(event) => {
+                                if (!selectedComponent) {
+                                  return;
+                                }
+                                const currentTextLinkState = getTextLinkStateFromComponent(selectedComponent);
+                                if (!event.target.checked) {
+                                  applyTextLinkToComponent(selectedComponent, {
+                                    href: '',
+                                    target: currentTextLinkState.target,
+                                  });
+                                } else {
+                                  applyTextLinkToComponent(selectedComponent, {
+                                    href: currentTextLinkState.href || 'https://example.com',
+                                    target: currentTextLinkState.target,
+                                  });
+                                }
+                                patchComponentAttributes(selectedComponent, {}, [INHERITED_SECTION_LINK_ATTR]);
+                                keepComponentSelected(selectedComponent);
+                              }}
+                            />
+                            Add a link
+                          </label>
                           <input
                             type="text"
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
@@ -1201,34 +1743,38 @@ export function LayoutTemplateEditor({
                               if (!selectedComponent) {
                                 return;
                               }
+                              const currentTextLinkState = getTextLinkStateFromComponent(selectedComponent);
                               applyTextLinkToComponent(selectedComponent, {
                                 href: event.target.value,
-                                target: selectedTextLinkTarget,
+                                target: currentTextLinkState.target,
                               });
+                              patchComponentAttributes(selectedComponent, {}, [INHERITED_SECTION_LINK_ATTR]);
                               keepComponentSelected(selectedComponent);
                             }}
                           />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-semibold text-slate-700">Link Target</span>
                           <select
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedTextLinkTarget}
                             onChange={(event) => {
-                              if (!selectedComponent || !selectedTextLink) {
+                              if (!selectedComponent) {
+                                return;
+                              }
+                              const currentTextLinkState = getTextLinkStateFromComponent(selectedComponent);
+                              if (!currentTextLinkState.href) {
                                 return;
                               }
                               applyTextLinkToComponent(selectedComponent, {
-                                href: selectedTextLink,
+                                href: currentTextLinkState.href,
                                 target: event.target.value,
                               });
+                              patchComponentAttributes(selectedComponent, {}, [INHERITED_SECTION_LINK_ATTR]);
                               keepComponentSelected(selectedComponent);
                             }}
                           >
-                            <option value="_self">Same tab</option>
+                            <option value={DEFAULT_LINK_TARGET}>Same tab</option>
                             <option value="_blank">New tab</option>
                           </select>
-                        </label>
+                        </div>
                       </div>
                     ) : null}
 
@@ -1295,8 +1841,10 @@ export function LayoutTemplateEditor({
                               checked={Boolean(selectedImageHref)}
                               onChange={(event) =>
                                 updateSelectedAttributes({
-                                  href: event.target.checked ? selectedImageHref || 'https://example.com' : '',
-                                })
+                                  href: event.target.checked
+                                    ? normalizeLinkInput(selectedImageHref || 'https://example.com')
+                                    : '',
+                                }, [INHERITED_SECTION_LINK_ATTR])
                               }
                             />
                             Add a link
@@ -1306,14 +1854,14 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedImageHref}
                             placeholder="https://example.com"
-                            onChange={(event) => updateSelectedAttributes({ href: event.target.value.trim() })}
+                            onChange={(event) => updateSelectedLinkAttribute('href', event.target.value)}
                           />
                           <select
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedImageTarget}
-                            onChange={(event) => updateSelectedAttributes({ target: event.target.value })}
+                            onChange={(event) => updateSelectedLinkAttribute('target', event.target.value)}
                           >
-                            <option value="">Same tab</option>
+                            <option value={DEFAULT_LINK_TARGET}>Same tab</option>
                             <option value="_blank">New tab</option>
                           </select>
                         </div>
@@ -1357,10 +1905,60 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedButtonText}
                             onChange={(event) => {
-                              selectedComponent.set('content', plainTextToHtml(event.target.value));
+                              setComponentHtmlContent(selectedComponent, plainTextToHtml(event.target.value));
                               keepComponentSelected(selectedComponent);
                             }}
                           />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Button color</span>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedButtonBackgroundColor}
+                            placeholder="#0f766e"
+                            onChange={(event) =>
+                              updateSelectedAttributes({ 'background-color': event.target.value.trim() })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Text color</span>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedButtonTextColor}
+                            placeholder="#ffffff"
+                            onChange={(event) =>
+                              updateSelectedAttributes({ color: event.target.value.trim() })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Button size</span>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedButtonWidth}
+                            placeholder="160px"
+                            onChange={(event) =>
+                              updateSelectedAttributes({
+                                width: event.target.value.trim() ? pxValue(event.target.value) : '',
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Alignment</span>
+                          <select
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedButtonAlign}
+                            onChange={(event) => updateSelectedAttributes({ align: event.target.value })}
+                          >
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                          </select>
                         </label>
                         <label className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Add a link</span>
@@ -1369,7 +1967,7 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedButtonHref}
                             placeholder="https://example.com"
-                            onChange={(event) => updateSelectedAttributes({ href: event.target.value.trim() })}
+                            onChange={(event) => updateSelectedLinkAttribute('href', event.target.value)}
                           />
                         </label>
                         <label className="block">
@@ -1377,9 +1975,9 @@ export function LayoutTemplateEditor({
                           <select
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedButtonTarget}
-                            onChange={(event) => updateSelectedAttributes({ target: event.target.value })}
+                            onChange={(event) => updateSelectedLinkAttribute('target', event.target.value)}
                           >
-                            <option value="">Same tab</option>
+                            <option value={DEFAULT_LINK_TARGET}>Same tab</option>
                             <option value="_blank">New tab</option>
                           </select>
                         </label>
@@ -1404,7 +2002,7 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedGenericHref}
                             placeholder="https://example.com"
-                            onChange={(event) => updateSelectedAttributes({ href: event.target.value.trim() })}
+                            onChange={(event) => updateSelectedLinkAttribute('href', event.target.value)}
                           />
                         </label>
                         <label className="block">
@@ -1412,12 +2010,73 @@ export function LayoutTemplateEditor({
                           <select
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedGenericTarget}
-                            onChange={(event) => updateSelectedAttributes({ target: event.target.value })}
+                            onChange={(event) => updateSelectedLinkAttribute('target', event.target.value)}
                           >
-                            <option value="">Same tab</option>
+                            <option value={DEFAULT_LINK_TARGET}>Same tab</option>
                             <option value="_blank">New tab</option>
                           </select>
                         </label>
+                      </div>
+                    ) : null}
+
+                    {isSectionContainerComponent ? (
+                      <div className="space-y-3 border-t border-slate-200 pt-3">
+                        <div className="text-xs font-semibold text-[#0b6886]">Section link</div>
+                        <div className="space-y-2">
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={isSectionLinkEnabled}
+                              onChange={(event) => {
+                                if (!selectedComponent) {
+                                  return;
+                                }
+                                applySectionLinkToComponent(selectedComponent, {
+                                  href: event.target.checked
+                                    ? selectedSectionLink || 'https://example.com'
+                                    : '',
+                                  target: selectedSectionLinkTarget,
+                                });
+                                keepComponentSelected(selectedComponent);
+                              }}
+                            />
+                            Add a link
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedSectionLink}
+                            placeholder="https://example.com"
+                            onChange={(event) => {
+                              if (!selectedComponent) {
+                                return;
+                              }
+                              applySectionLinkToComponent(selectedComponent, {
+                                href: event.target.value,
+                                target: selectedSectionLinkTarget,
+                              });
+                              keepComponentSelected(selectedComponent);
+                            }}
+                          />
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Link target</span>
+                          <select
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedSectionLinkTarget}
+                            onChange={(event) => {
+                              if (!selectedComponent) {
+                                return;
+                              }
+                              applySectionLinkToComponent(selectedComponent, {
+                                href: selectedSectionLink,
+                                target: event.target.value,
+                              });
+                              keepComponentSelected(selectedComponent);
+                            }}
+                          >
+                            <option value={DEFAULT_LINK_TARGET}>Same tab</option>
+                            <option value="_blank">New tab</option>
+                          </select>
+                        </div>
                       </div>
                     ) : null}
 
@@ -1430,27 +2089,77 @@ export function LayoutTemplateEditor({
                             type="text"
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedBackgroundColor}
-                            onChange={(event) =>
-                              updateSelectedStyle({ 'background-color': event.target.value.trim() })
-                            }
+                            onChange={(event) => {
+                              const nextValue = event.target.value.trim();
+                              if (isBackgroundCapableComponent) {
+                                updateSelectedAttributes({ 'background-color': nextValue });
+                              } else {
+                                updateSelectedStyle({ 'background-color': nextValue });
+                              }
+                            }}
                           />
                         </label>
-                        <label className="block">
+                        <div className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Background image</span>
-                          <input
-                            type="text"
-                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
-                            value={selectedBackgroundImage}
-                            placeholder="https://example.com/bg.png"
-                            onChange={(event) =>
-                              updateSelectedStyle({
-                                'background-image': event.target.value.trim()
-                                  ? toCssUrl(event.target.value.trim())
-                                  : '',
-                              })
-                            }
-                          />
-                        </label>
+                          {isSectionContainerComponent ? (
+                            <div className="space-y-2">
+                              <button
+                                type="button"
+                                className="inline-flex h-9 w-full items-center justify-center rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-50"
+                                onClick={openSectionBackgroundImagePicker}
+                              >
+                                {selectedBackgroundImage ? 'Change background image' : 'Select background image'}
+                              </button>
+                              {selectedBackgroundImage ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="min-w-0 flex-1 truncate rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+                                    {selectedBackgroundImage}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-8 items-center justify-center rounded border border-slate-300 px-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                    onClick={() => updateSelectedAttributes({ 'background-url': '' })}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                              value={selectedBackgroundImage}
+                              placeholder="https://example.com/bg.png"
+                              onChange={(event) => {
+                                const nextUrl = event.target.value.trim();
+                                if (isBackgroundCapableComponent) {
+                                  updateSelectedAttributes({ 'background-url': nextUrl });
+                                } else {
+                                  updateSelectedStyle({
+                                    'background-image': nextUrl ? toCssUrl(nextUrl) : '',
+                                  });
+                                }
+                              }}
+                            />
+                          )}
+                        </div>
+                        {isSectionContainerComponent ? (
+                          <label className="block">
+                            <span className="mb-1 block text-xs font-semibold text-slate-700">Alignment</span>
+                            <select
+                              className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                              value={selectedSectionAlign}
+                              onChange={(event) =>
+                                updateSelectedAttributes({ 'text-align': event.target.value })
+                              }
+                            >
+                              <option value="left">Left</option>
+                              <option value="center">Center</option>
+                              <option value="right">Right</option>
+                            </select>
+                          </label>
+                        ) : null}
                         <div>
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Inner Padding</span>
                           <div className="grid grid-cols-2 gap-2">
@@ -1460,7 +2169,7 @@ export function LayoutTemplateEditor({
                               value={selectedPaddingTop}
                               placeholder="Top"
                               onChange={(event) =>
-                                updateSelectedStyle({ 'padding-top': pxValue(event.target.value) })
+                                updateSelectedAttributes({ 'padding-top': pxValue(event.target.value) })
                               }
                             />
                             <input
@@ -1469,7 +2178,7 @@ export function LayoutTemplateEditor({
                               value={selectedPaddingBottom}
                               placeholder="Bottom"
                               onChange={(event) =>
-                                updateSelectedStyle({ 'padding-bottom': pxValue(event.target.value) })
+                                updateSelectedAttributes({ 'padding-bottom': pxValue(event.target.value) })
                               }
                             />
                             <input
@@ -1478,7 +2187,7 @@ export function LayoutTemplateEditor({
                               value={selectedPaddingLeft}
                               placeholder="Left"
                               onChange={(event) =>
-                                updateSelectedStyle({ 'padding-left': pxValue(event.target.value) })
+                                updateSelectedAttributes({ 'padding-left': pxValue(event.target.value) })
                               }
                             />
                             <input
@@ -1487,7 +2196,7 @@ export function LayoutTemplateEditor({
                               value={selectedPaddingRight}
                               placeholder="Right"
                               onChange={(event) =>
-                                updateSelectedStyle({ 'padding-right': pxValue(event.target.value) })
+                                updateSelectedAttributes({ 'padding-right': pxValue(event.target.value) })
                               }
                             />
                           </div>
@@ -1498,7 +2207,9 @@ export function LayoutTemplateEditor({
                             type="text"
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedHeight}
-                            onChange={(event) => updateSelectedStyle({ height: pxValue(event.target.value) })}
+                            onChange={(event) =>
+                              updateSelectedAttributes({ height: pxValue(event.target.value) })
+                            }
                           />
                         </label>
                         <label className="block">
@@ -1508,7 +2219,7 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedBorderRadius}
                             onChange={(event) =>
-                              updateSelectedStyle({ 'border-radius': pxValue(event.target.value) })
+                              updateSelectedAttributes({ 'border-radius': pxValue(event.target.value) })
                             }
                           />
                         </label>
@@ -1519,7 +2230,7 @@ export function LayoutTemplateEditor({
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             value={selectedBorder}
                             placeholder="1px solid #000000"
-                            onChange={(event) => updateSelectedStyle({ border: event.target.value.trim() })}
+                            onChange={(event) => updateSelectedAttributes({ border: event.target.value.trim() })}
                           />
                         </label>
                       </div>
@@ -1849,7 +2560,13 @@ export function LayoutTemplateEditor({
 
         <TemplateImagePickerDialog
           open={isImagePickerOpen}
-          onOpenChange={setIsImagePickerOpen}
+          onOpenChange={(open) => {
+            setIsImagePickerOpen(open);
+            if (!open) {
+              setImagePickerMode('image');
+              sectionBackgroundTargetRef.current = null;
+            }
+          }}
           onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
         />
       </div>
@@ -1903,7 +2620,13 @@ export function LayoutTemplateEditor({
 
       <TemplateImagePickerDialog
         open={isImagePickerOpen}
-        onOpenChange={setIsImagePickerOpen}
+        onOpenChange={(open) => {
+          setIsImagePickerOpen(open);
+          if (!open) {
+            setImagePickerMode('image');
+            sectionBackgroundTargetRef.current = null;
+          }
+        }}
         onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
       />
     </div>
