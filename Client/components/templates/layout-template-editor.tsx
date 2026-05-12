@@ -14,6 +14,7 @@ interface LayoutTemplateEditorProps {
   onDesignChange?: (design: Record<string, unknown> | null) => void;
   mjmlValue?: string | null;
   onMjmlChange?: (mjml: string | null) => void;
+  onUserEdit?: () => void;
   headerActions?: ReactNode;
   previewHeaderActions?: ReactNode;
   fullHeight?: boolean;
@@ -653,6 +654,7 @@ export function LayoutTemplateEditor({
   onDesignChange,
   mjmlValue = null,
   onMjmlChange,
+  onUserEdit,
   headerActions,
   previewHeaderActions,
   fullHeight = false,
@@ -667,8 +669,10 @@ export function LayoutTemplateEditor({
   const applyImageManagerSelectionRef = useRef<(imageUrl: string) => void>(() => {});
   const onChangeRef = useRef(onChange);
   const onMjmlChangeRef = useRef(onMjmlChange);
+  const onUserEditRef = useRef(onUserEdit);
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshCanvasRef = useRef<(() => void) | null>(null);
+  const suppressUserUpdateRef = useRef(true);
   const syncVersionRef = useRef(0);
   const lastHtmlRef = useRef(value);
   const initialMjmlRef = useRef(ensureMjmlDocument(mjmlValue));
@@ -1050,8 +1054,8 @@ export function LayoutTemplateEditor({
   }, [onMjmlChange]);
 
   useEffect(() => {
-    onMjmlChangeRef.current = onMjmlChange;
-  }, [onMjmlChange]);
+    onUserEditRef.current = onUserEdit;
+  }, [onUserEdit]);
 
   useEffect(() => {
     if (designJson && onDesignChange) {
@@ -1387,12 +1391,23 @@ export function LayoutTemplateEditor({
           clearTimeout(updateTimerRef.current);
         }
 
+        if (!suppressUserUpdateRef.current) {
+          onUserEditRef.current?.();
+        }
+
         updateTimerRef.current = setTimeout(() => {
           void syncCompiledHtml();
         }, 650);
       });
 
-      void syncCompiledHtml();
+      void syncCompiledHtml().finally(() => {
+        if (disposed) {
+          return;
+        }
+        window.setTimeout(() => {
+          suppressUserUpdateRef.current = false;
+        }, 0);
+      });
     }
 
     void init();
@@ -1453,6 +1468,10 @@ export function LayoutTemplateEditor({
     editor.setComponents(normalized);
     lastAppliedExternalMjmlRef.current = normalized;
     initialMjmlRef.current = normalized;
+    suppressUserUpdateRef.current = true;
+    window.setTimeout(() => {
+      suppressUserUpdateRef.current = false;
+    }, 0);
   }, [mjmlValue]);
 
   useEffect(() => {

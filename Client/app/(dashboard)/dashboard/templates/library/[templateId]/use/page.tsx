@@ -15,7 +15,6 @@ import { HttpClientError } from '@/lib/api/errors';
 import { createTemplate, getMjmlProviderTemplateById } from '@/lib/api/templates';
 import {
   clearLibraryTemplateDraft,
-  readLibraryTemplateDraft,
   saveLibraryTemplateDraft,
 } from '@/lib/templates/library-template-draft';
 import type { ProviderTemplateDetail, TemplateCategory } from '@/lib/types/template';
@@ -89,6 +88,9 @@ export default function UseTemplatePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isFinalSaving, setIsFinalSaving] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isLeaveConfirmOpen, setIsLeaveConfirmOpen] = useState(false);
+  const [leaveWillAutoSave, setLeaveWillAutoSave] = useState(false);
+  const [hasUserEdited, setHasUserEdited] = useState(false);
   const [isDraftSaved, setIsDraftSaved] = useState(false);
   const [isNameStepOpen, setIsNameStepOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
@@ -116,6 +118,7 @@ export default function UseTemplatePage() {
         if (!cancelled) {
           setProviderTemplate(detail);
           form.reset(getDefaultValues(detail));
+          setHasUserEdited(false);
           setIsDraftSaved(false);
           // Always start from the original library template when entering edit mode.
           clearLibraryTemplateDraft(templateId);
@@ -273,22 +276,20 @@ export default function UseTemplatePage() {
     }
   };
 
-  const handleBackFromEditor = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to leave the editor? Your current changes will be auto-saved as a personal template.',
-    );
-    if (!confirmed) {
-      return;
-    }
+  const openLeaveConfirmDialog = () => {
+    const shouldCreatePersonalTemplate = hasUnsavedChanges || hasUserEdited;
+    setLeaveWillAutoSave(shouldCreatePersonalTemplate);
+    setIsLeaveConfirmOpen(true);
+  };
 
-    const hasDraftSnapshot = Boolean(readLibraryTemplateDraft(templateId));
-    const shouldCreatePersonalTemplate = hasUnsavedChanges || isDraftSaved || hasDraftSnapshot;
-
-    if (!shouldCreatePersonalTemplate) {
+  const handleConfirmLeave = async () => {
+    if (!leaveWillAutoSave) {
+      setIsLeaveConfirmOpen(false);
       router.push(`/dashboard/templates/library/${encodeURIComponent(templateId)}/preview`);
       return;
     }
 
+    setIsLeaveConfirmOpen(false);
     setIsLeaving(true);
     try {
       const values = form.getValues();
@@ -344,6 +345,7 @@ export default function UseTemplatePage() {
                 <LayoutTemplateEditor
                   value={field.value ?? ''}
                   onChange={field.onChange}
+                  onUserEdit={() => setHasUserEdited(true)}
                   designJson={
                     watchedDesignJson && typeof watchedDesignJson === 'object'
                       ? watchedDesignJson
@@ -366,7 +368,7 @@ export default function UseTemplatePage() {
                         type="button"
                         variant="outline"
                         className="border-cyan-200 bg-white/95 text-[#0b5066] hover:bg-white"
-                        onClick={() => void handleBackFromEditor()}
+                        onClick={openLeaveConfirmDialog}
                         disabled={isLeaving || isSaving || isFinalSaving}
                       >
                         <ArrowLeft className="mr-1 h-4 w-4" />
@@ -443,6 +445,39 @@ export default function UseTemplatePage() {
                     </Button>
                     <Button type="button" onClick={() => void handleFinalSave()} disabled={isFinalSaving}>
                       {isFinalSaving ? 'Saving...' : 'Save Template'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
+
+          {isLeaveConfirmOpen ? (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
+              <Card className="w-full max-w-xl border-slate-300 bg-white text-slate-900">
+                <CardContent className="space-y-4 p-6">
+                  <h3 className="text-lg font-semibold">Leave Editor?</h3>
+                  {leaveWillAutoSave ? (
+                    <p className="text-sm text-slate-600">
+                      You have made changes. Your changes will be auto-saved and stored in Personal
+                      Templates.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-600">
+                      You haven't made any changes. You are returning to the preview page.
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsLeaveConfirmOpen(false)}
+                      disabled={isLeaving}
+                    >
+                      Stay Here
+                    </Button>
+                    <Button type="button" onClick={() => void handleConfirmLeave()} disabled={isLeaving}>
+                      {leaveWillAutoSave ? 'Leave & Auto Save' : 'Go to Preview'}
                     </Button>
                   </div>
                 </CardContent>
