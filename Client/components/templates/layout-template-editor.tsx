@@ -131,6 +131,7 @@ type LinkDialogSnapshot = {
 type BuildRichTextActionsOptions = {
   onOpenLinkDialog: (snapshot: LinkDialogSnapshot) => void;
   prepareSelection: () => Selection | null;
+  onCloseToolbar: () => void;
 };
 
 function buildRichTextActions(options: BuildRichTextActionsOptions) {
@@ -257,7 +258,14 @@ function buildRichTextActions(options: BuildRichTextActionsOptions) {
         rte.exec('fontName', value);
       },
     ),
-    execAction('removeFormat', '&#10005;', 'Clear format', 'removeFormat'),
+    {
+      name: 'closeRte',
+      icon: '&#10005;',
+      attributes: { title: 'Close' },
+      result: () => {
+        options.onCloseToolbar();
+      },
+    },
     selectAction(
       'insertVariable',
       'Insert variable',
@@ -1354,6 +1362,30 @@ export function LayoutTemplateEditor({
     linkDialogContextRef.current = null;
   };
 
+  const closeRteToolbar = () => {
+    const editor = editorRef.current;
+    const frameDoc = editor?.Canvas?.getDocument?.();
+    const selection = frameDoc?.getSelection?.();
+    if (selection) {
+      try {
+        selection.removeAllRanges();
+      } catch {
+        // Ignore cross-document selection issues.
+      }
+    }
+
+    try {
+      editor?.runCommand?.('core:component-exit');
+    } catch {
+      // Command availability can vary by GrapesJS version.
+    }
+
+    const toolbarEl = document.querySelector('.gjs-rte-toolbar') as HTMLElement | null;
+    if (toolbarEl) {
+      toolbarEl.style.display = 'none';
+    }
+  };
+
   const captureCurrentRteRange = () => {
     const frameDoc = editorRef.current?.Canvas?.getDocument?.();
     const frameSelection = frameDoc?.getSelection?.();
@@ -2035,6 +2067,7 @@ export function LayoutTemplateEditor({
             actions: buildRichTextActions({
               onOpenLinkDialog: openLinkDialog,
               prepareSelection: prepareRteSelection,
+              onCloseToolbar: closeRteToolbar,
             }),
           },
           components: initialMjmlRef.current,
@@ -3432,7 +3465,7 @@ export function LayoutTemplateEditor({
             padding: 4px !important;
             border: 1px solid #d1d5db !important;
             border-radius: 8px !important;
-            background: #000000 !important;
+            background: #d1d5db !important;
             opacity: 1 !important;
             visibility: visible !important;
             overflow-x: auto !important;
@@ -3441,7 +3474,7 @@ export function LayoutTemplateEditor({
 
           .mjml-shell .gjs-rte-actionbar {
             z-index: 9999 !important;
-            background: #000000 !important;
+            background: #d1d5db !important;
             border-radius: 8px !important;
             padding: 2px !important;
           }
