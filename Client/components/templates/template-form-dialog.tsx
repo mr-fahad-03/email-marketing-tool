@@ -203,6 +203,22 @@ export function TemplateFormDialog({
                     <EmailTemplateHtmlEditor
                       value={field.value ?? ''}
                       onChange={field.onChange}
+                      designJson={
+                        watchedDesignJson && typeof watchedDesignJson === 'object'
+                          ? watchedDesignJson
+                          : null
+                      }
+                      onDesignChange={(design) => {
+                        form.setValue('designJson', design, {
+                          shouldDirty: true,
+                        });
+                      }}
+                      mjmlValue={watchedMjmlBody}
+                      onMjmlChange={(mjml) => {
+                        form.setValue('mjmlBody', mjml, {
+                          shouldDirty: true,
+                        });
+                      }}
                     />
                   )}
                 />

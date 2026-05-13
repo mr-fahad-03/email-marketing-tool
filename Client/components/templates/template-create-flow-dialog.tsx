@@ -74,9 +74,9 @@ export function TemplateCreateFlowDialog({
                 onClick={onSelectHtmlEditor}
               >
                 <Code2 className="mb-4 h-8 w-8 text-sky-400" />
-                <p className="text-lg font-semibold">HTML Editor</p>
+                <p className="text-lg font-semibold">Custom Editor (GrapesJS + MJML)</p>
                 <p className="mt-2 text-sm text-zinc-400">
-                  Build your template directly with HTML source code and full markup control.
+                  Start with the same visual builder and customize every block, style, and section.
                 </p>
               </button>
             </div>

@@ -89,7 +89,7 @@ export function TemplateLibraryGrid({
           <p className="mt-2 text-xs text-zinc-500">{toSummary(item)}</p>
           <div className="mt-4 flex items-center justify-between gap-2">
             <span className="text-xs uppercase tracking-wide text-zinc-500">
-              {item.editorType === 'layout' ? 'Layout editor' : 'HTML editor'}
+              {item.editorType === 'layout' ? 'Layout editor' : 'Custom editor'}
             </span>
             <Button
               size="sm"

@@ -70,7 +70,7 @@ export function TemplateDetailsDialog({
             <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
               <p className="text-xs text-zinc-500">Editor</p>
               <p className="mt-1 text-sm text-zinc-200">
-                {template.editorType === 'layout' ? 'Layout editor' : 'HTML editor'}
+                {template.editorType === 'layout' ? 'Layout editor' : 'Custom editor'}
               </p>
             </div>
             <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">

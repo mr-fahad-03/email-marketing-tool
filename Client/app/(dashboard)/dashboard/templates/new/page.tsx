@@ -505,6 +505,22 @@ export default function NewTemplatePage() {
                   <EmailTemplateHtmlEditor
                     value={field.value ?? ''}
                     onChange={field.onChange}
+                    designJson={
+                      watchedDesignJson && typeof watchedDesignJson === 'object'
+                        ? watchedDesignJson
+                        : null
+                    }
+                    onDesignChange={(design) => {
+                      form.setValue('designJson', design, {
+                        shouldDirty: true,
+                      });
+                    }}
+                    mjmlValue={watchedMjmlBody}
+                    onMjmlChange={(mjml) => {
+                      form.setValue('mjmlBody', mjml, {
+                        shouldDirty: true,
+                      });
+                    }}
                     headerActions={(
                       <>
                         <Button
@@ -547,7 +563,7 @@ export default function NewTemplatePage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-slate-600">
-                  Add a template name to finish saving this HTML template.
+                  Add a template name to finish saving this custom template.
                 </p>
                 <div className="space-y-2">
                   <Label htmlFor="html-template-name-final">Template Name</Label>

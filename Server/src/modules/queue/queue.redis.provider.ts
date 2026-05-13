@@ -9,6 +9,8 @@ export class QueueRedisConnectionProvider implements OnApplicationShutdown {
   private readonly logger = new Logger(QueueRedisConnectionProvider.name);
 
   private hasLoggedClientLimitError = false;
+  private hasLoggedDnsResolutionError = false;
+  private hasLoggedRetryLimitError = false;
 
   readonly client: Redis;
 
@@ -33,9 +35,12 @@ export class QueueRedisConnectionProvider implements OnApplicationShutdown {
       maxRetriesPerRequest: null,
       retryStrategy: (attempt): number | null => {
         if (attempt > retryMaxAttempts) {
-          this.logger.error(
-            `Redis reconnect retry limit reached (${retryMaxAttempts}). Stopping retries for this client.`,
-          );
+          if (!this.hasLoggedRetryLimitError) {
+            this.hasLoggedRetryLimitError = true;
+            this.logger.error(
+              `Redis reconnect retry limit reached (${retryMaxAttempts}). Stopping retries for this client.`,
+            );
+          }
           return null;
         }
 
@@ -43,7 +48,19 @@ export class QueueRedisConnectionProvider implements OnApplicationShutdown {
       },
     });
 
-    this.client.on('error', (error) => {
+    this.client.on('error', (error: Error & { code?: string }) => {
+      if (error.code === 'ENOTFOUND') {
+        if (!this.hasLoggedDnsResolutionError) {
+          this.hasLoggedDnsResolutionError = true;
+          const host =
+            this.configService.get<string>('redis.host', { infer: true }) ?? 'unknown host';
+          this.logger.error(
+            `Redis hostname could not be resolved (${host}). Check REDIS_HOST / DNS configuration.`,
+          );
+        }
+        return;
+      }
+
       if (error.message.includes('max number of clients reached')) {
         if (!this.hasLoggedClientLimitError) {
           this.hasLoggedClientLimitError = true;

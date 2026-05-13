@@ -33,8 +33,7 @@ interface GrapesEditorInstance {
   select?: (component: unknown) => void;
   setComponents: (input: string) => void;
   setDevice?: (name: string) => void;
-  runCommand?: (id: string) => unknown;
-  stopCommand?: (id: string) => unknown;
+  runCommand?: (id: string, options?: Record<string, unknown>) => unknown;
   on: (eventName: string, callback: (...args: unknown[]) => void) => void;
   destroy: () => void;
   DomComponents?: {
@@ -71,6 +70,7 @@ interface GrapesComponentModel {
   find?: (query: string) => unknown[];
   toHTML?: () => string;
   getEl?: () => HTMLElement | null;
+  getId?: () => string;
   getTrait?: (id: string) => unknown;
   getTraits?: () => Array<{ get?: (key: string) => unknown }>;
   addTrait?: (trait: TraitDefinition | TraitDefinition[]) => unknown;
@@ -101,6 +101,271 @@ const BACKGROUND_CAPABLE_TYPES = new Set([
 ]);
 const HREF_ATTRIBUTE_TYPES = new Set(['mj-image', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
 const SECTION_LINK_CHILD_TYPES = new Set(['mj-text', 'mj-image', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
+const INLINE_TEXT_EDITABLE_TYPES = new Set(['mj-text', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
+const RTE_VARIABLES = [
+  '{{fullName}}',
+  '{{email}}',
+  '{{phone}}',
+  '{{company}}',
+  '{{category}}',
+  '{{campaign.name}}',
+];
+
+type RteExec = {
+  exec: (cmd: string, value?: string) => void;
+  insertHTML: (html: string) => void;
+  selection: () => Selection | null;
+};
+
+type LinkDialogSnapshot = {
+  rte: RteExec;
+  range: Range | null;
+  currentHref: string;
+  componentId?: string;
+  component?: GrapesComponentModel | null;
+  selectedText?: string;
+  blockText?: string;
+  hasSelectedText?: boolean;
+};
+
+type BuildRichTextActionsOptions = {
+  onOpenLinkDialog: (snapshot: LinkDialogSnapshot) => void;
+  prepareSelection: () => Selection | null;
+};
+
+function buildRichTextActions(options: BuildRichTextActionsOptions) {
+
+  const getSelectElement = (action: { btn?: Element | null }): HTMLSelectElement | null =>
+    (action.btn?.querySelector('select') as HTMLSelectElement | null) ?? null;
+
+  const execAction = (name: string, icon: string, title: string, command = name) => ({
+    name,
+    icon,
+    attributes: { title },
+    result: (rte: RteExec) => {
+      const selection = options.prepareSelection();
+      if (!selection || selection.rangeCount === 0) {
+        return;
+      }
+      rte.exec(command);
+    },
+  });
+
+  const selectAction = (
+    name: string,
+    title: string,
+    icon: string,
+    onChange: (rte: RteExec, value: string) => void,
+  ) => ({
+    name,
+    icon,
+    event: 'change',
+    attributes: { title },
+    result: (rte: RteExec, action: { btn?: Element | null }) => {
+      const selection = options.prepareSelection();
+      if (!selection || selection.rangeCount === 0) {
+        return;
+      }
+      const selectEl = getSelectElement(action);
+      if (!selectEl) {
+        return;
+      }
+      onChange(rte, selectEl.value);
+    },
+  });
+
+  return [
+    selectAction(
+      'formatBlock',
+      'Text style',
+      `<select class="gjs-rte-select gjs-rte-select--format">
+        <option value="p">Paragraph</option>
+        <option value="h1">Heading 1</option>
+        <option value="h2">Heading 2</option>
+        <option value="h3">Heading 3</option>
+        <option value="pre">Preformatted</option>
+      </select>`,
+      (rte, value) => {
+        if (!value) {
+          return;
+        }
+        rte.exec('formatBlock', `<${value}>`);
+      },
+    ),
+    selectAction(
+      'fontSize',
+      'Font size',
+      `<select class="gjs-rte-select gjs-rte-select--size">
+        <option value="2">12px</option>
+        <option value="3" selected>14px</option>
+        <option value="4">16px</option>
+        <option value="5">18px</option>
+        <option value="6">24px</option>
+      </select>`,
+      (rte, value) => {
+        if (!value) {
+          return;
+        }
+        rte.exec('fontSize', value);
+      },
+    ),
+    execAction('bold', '<b>B</b>', 'Bold'),
+    execAction('italic', '<i>I</i>', 'Italic'),
+    execAction('underline', '<u>U</u>', 'Underline'),
+    execAction('strikeThrough', '<s>S</s>', 'Strike'),
+    execAction('justifyLeft', '&#8676;', 'Align left'),
+    execAction('justifyCenter', '&#8596;', 'Align center'),
+    execAction('justifyRight', '&#8677;', 'Align right'),
+    execAction('insertOrderedList', '1. List', 'Number list'),
+    execAction('insertUnorderedList', '&#8226; List', 'Bullet list'),
+    execAction('outdent', '&#8672;', 'Outdent'),
+    execAction('indent', '&#8674;', 'Indent'),
+    {
+      name: 'createLink',
+      icon: '&#128279;',
+      attributes: { title: 'Insert link' },
+      result: (rte: RteExec) => {
+        const selection = options.prepareSelection();
+        const range =
+          selection && selection.rangeCount > 0
+            ? selection.getRangeAt(0).cloneRange()
+            : null;
+        const currentHref = getAnchorHrefFromRange(range);
+        options.onOpenLinkDialog({
+          rte,
+          range,
+          currentHref,
+        });
+      },
+    },
+    execAction('unlink', '&#128683;', 'Remove link', 'unlink'),
+    selectAction(
+      'fontName',
+      'Font family',
+      `<select class="gjs-rte-select gjs-rte-select--font">
+        <option value="Arial" selected>Arial</option>
+        <option value="Helvetica">Helvetica</option>
+        <option value="'Times New Roman'">Times New Roman</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Tahoma">Tahoma</option>
+        <option value="Verdana">Verdana</option>
+      </select>`,
+      (rte, value) => {
+        if (!value) {
+          return;
+        }
+        rte.exec('fontName', value);
+      },
+    ),
+    execAction('removeFormat', '&#10005;', 'Clear format', 'removeFormat'),
+    selectAction(
+      'insertVariable',
+      'Insert variable',
+      `<select class="gjs-rte-select gjs-rte-select--var">
+        <option value="" selected>Variables</option>
+        ${RTE_VARIABLES.map((item) => `<option value="${item}">${item}</option>`).join('')}
+      </select>`,
+      (rte, value) => {
+        if (!value) {
+          return;
+        }
+        const selectedText = rte.selection()?.toString() ?? '';
+        rte.insertHTML(selectedText ? `${selectedText}${value}` : value);
+      },
+    ),
+  ];
+}
+
+function getClosestAnchorElement(node: Node | null): HTMLAnchorElement | null {
+  let current: Node | null = node;
+  while (current) {
+    if (
+      current.nodeType === Node.ELEMENT_NODE &&
+      (current as Element).tagName.toLowerCase() === 'a'
+    ) {
+      return current as HTMLAnchorElement;
+    }
+    current = current.parentNode;
+  }
+  return null;
+}
+
+function getAnchorElementFromRange(range: Range | null): HTMLAnchorElement | null {
+  if (!range) {
+    return null;
+  }
+
+  const startAnchor = getClosestAnchorElement(range.startContainer);
+  if (startAnchor) {
+    return startAnchor;
+  }
+
+  const endAnchor = getClosestAnchorElement(range.endContainer);
+  if (endAnchor) {
+    return endAnchor;
+  }
+
+  const ancestorNode = range.commonAncestorContainer;
+  const ancestorElement =
+    ancestorNode instanceof Element ? ancestorNode : ancestorNode.parentElement;
+  if (!ancestorElement) {
+    return null;
+  }
+
+  return (ancestorElement.closest('a[href]') as HTMLAnchorElement | null) ??
+    (ancestorElement.querySelector('a[href]') as HTMLAnchorElement | null);
+}
+
+function getAnchorHrefFromRange(range: Range | null): string {
+  const anchor = getAnchorElementFromRange(range);
+  const href = anchor?.getAttribute('href')?.trim() ?? '';
+  return href;
+}
+
+function applyNeutralAnchorStyle(anchor: HTMLAnchorElement): void {
+  anchor.style.color = 'inherit';
+  anchor.style.textDecoration = 'none';
+}
+
+function unwrapAnchorElement(anchor: HTMLAnchorElement): void {
+  const parent = anchor.parentNode;
+  if (!parent) {
+    return;
+  }
+
+  while (anchor.firstChild) {
+    parent.insertBefore(anchor.firstChild, anchor);
+  }
+  parent.removeChild(anchor);
+}
+
+function applyLinkToRange(range: Range, href: string): HTMLAnchorElement | null {
+  const anchorFromRange = getAnchorElementFromRange(range);
+  if (anchorFromRange) {
+    anchorFromRange.setAttribute('href', href);
+    applyNeutralAnchorStyle(anchorFromRange);
+    return anchorFromRange;
+  }
+
+  if (range.collapsed || !range.toString().trim()) {
+    return null;
+  }
+
+  const ownerDocument = range.commonAncestorContainer.ownerDocument ?? window.document;
+  const anchor = ownerDocument.createElement('a');
+  anchor.setAttribute('href', href);
+  applyNeutralAnchorStyle(anchor);
+
+  try {
+    range.surroundContents(anchor);
+  } catch {
+    const fragment = range.extractContents();
+    anchor.appendChild(fragment);
+    range.insertNode(anchor);
+  }
+
+  return anchor;
+}
 
 function isSectionContainerType(type: string): boolean {
   return SECTION_CONTAINER_TYPES.has(type);
@@ -116,6 +381,10 @@ function supportsHrefAttribute(type: string): boolean {
 
 function shouldReceiveSectionLink(type: string): boolean {
   return SECTION_LINK_CHILD_TYPES.has(type);
+}
+
+function supportsInlineTextEditing(type: string): boolean {
+  return INLINE_TEXT_EDITABLE_TYPES.has(type);
 }
 
 function normalizeLinkInput(input: string): string {
@@ -812,6 +1081,97 @@ function toMjmlFromEditor(editor: GrapesEditorInstance): string {
   return `<mjml><mj-body>${trimmed}</mj-body></mjml>`;
 }
 
+type ToolbarAnchorRect = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
+function toParentViewportRect(frameEl: HTMLIFrameElement, rect: DOMRect): ToolbarAnchorRect {
+  const frameRect = frameEl.getBoundingClientRect();
+  return {
+    top: frameRect.top + rect.top,
+    left: frameRect.left + rect.left,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function getToolbarAnchorRect(
+  editor: GrapesEditorInstance,
+  selectedComponent: GrapesComponentModel | null,
+): ToolbarAnchorRect | null {
+  const frameEl = editor.Canvas?.getFrameEl?.();
+  const frameDoc = editor.Canvas?.getDocument?.();
+  if (!frameEl || !frameDoc) {
+    return null;
+  }
+
+  const selection = frameDoc.getSelection?.();
+  if (selection && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0).cloneRange();
+    const rangeRect = range.getBoundingClientRect();
+    if (rangeRect.width > 0 || rangeRect.height > 0) {
+      return toParentViewportRect(frameEl, rangeRect);
+    }
+
+    const rangeRects = range.getClientRects();
+    if (rangeRects.length > 0) {
+      return toParentViewportRect(frameEl, rangeRects[0] as DOMRect);
+    }
+
+    const anchorNode = selection.anchorNode;
+    const anchorElement =
+      anchorNode instanceof Element
+        ? anchorNode
+        : anchorNode?.parentElement ?? null;
+    if (anchorElement) {
+      return toParentViewportRect(frameEl, anchorElement.getBoundingClientRect());
+    }
+  }
+
+  const selectedEl = selectedComponent?.getEl?.();
+  if (!selectedEl) {
+    return null;
+  }
+
+  return toParentViewportRect(frameEl, selectedEl.getBoundingClientRect());
+}
+
+function positionRteToolbar(
+  editor: GrapesEditorInstance,
+  _shellEl: HTMLElement,
+  selectedComponent: GrapesComponentModel | null,
+): void {
+  const toolbarEl = document.querySelector('.gjs-rte-toolbar') as HTMLElement | null;
+  if (!toolbarEl || !selectedComponent) {
+    return;
+  }
+
+  const anchorRect = getToolbarAnchorRect(editor, selectedComponent);
+  if (!anchorRect) {
+    return;
+  }
+
+  const toolbarRect = toolbarEl.getBoundingClientRect();
+  const gap = 4;
+  const minPadX = 8;
+  const minPadY = 8;
+  const maxX = Math.max(minPadX, window.innerWidth - toolbarRect.width - minPadX);
+  const anchorCenterX = anchorRect.left + anchorRect.width / 2;
+  const left = Math.min(Math.max(anchorCenterX - toolbarRect.width / 2, minPadX), maxX);
+
+  const aboveTop = anchorRect.top - toolbarRect.height - gap;
+  const belowTop = anchorRect.top + anchorRect.height + gap;
+  const top = aboveTop >= minPadY ? aboveTop : belowTop;
+
+  toolbarEl.style.position = 'fixed';
+  toolbarEl.style.left = `${left}px`;
+  toolbarEl.style.top = `${Math.max(minPadY, top)}px`;
+  toolbarEl.style.transform = 'none';
+}
+
 export function LayoutTemplateEditor({
   value,
   onChange,
@@ -836,6 +1196,7 @@ export function LayoutTemplateEditor({
   const onDesignChangeRef = useRef(onDesignChange);
   const onMjmlChangeRef = useRef(onMjmlChange);
   const onUserEditRef = useRef(onUserEdit);
+  const lastRteRangeRef = useRef<Range | null>(null);
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshCanvasRef = useRef<(() => void) | null>(null);
   const lastAppliedCanvasHeightRef = useRef(0);
@@ -852,6 +1213,12 @@ export function LayoutTemplateEditor({
   const [selectedComponent, setSelectedComponent] = useState<GrapesComponentModel | null>(null);
   const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
   const [imagePickerMode, setImagePickerMode] = useState<ImagePickerMode>('image');
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [linkDialogUrl, setLinkDialogUrl] = useState('');
+  const [linkDialogError, setLinkDialogError] = useState('');
+  const [linkDialogMode, setLinkDialogMode] = useState<'text' | 'block'>('text');
+  const linkDialogContextRef = useRef<LinkDialogSnapshot | null>(null);
+  const linkDialogInputRef = useRef<HTMLInputElement | null>(null);
   const [, forceSelectedComponentRefresh] = useState(0);
 
   const shellId = useMemo(() => `mjml-shell-${Math.random().toString(36).slice(2, 10)}`, []);
@@ -875,6 +1242,231 @@ export function LayoutTemplateEditor({
 
   const bumpSelectedComponent = () => {
     forceSelectedComponentRefresh((prev) => prev + 1);
+  };
+
+  const openLinkDialog = (snapshot: LinkDialogSnapshot) => {
+    const selectedComponent = selectedComponentRef.current;
+    const selectedType = String(selectedComponent?.get?.('type') ?? '');
+    const wholeBlockHref =
+      selectedType === 'mj-text'
+        ? getTextLinkStateFromComponent(selectedComponent).href
+        : '';
+    const blockText = htmlToPlainText(getComponentEditableContent(selectedComponent));
+    const selectedText = snapshot.range?.toString().trim() ?? '';
+    const hasSelectedText = Boolean(selectedText);
+    const initialHref = snapshot.currentHref || wholeBlockHref;
+    const rangeSnapshot = snapshot.range?.cloneRange() ?? lastRteRangeRef.current?.cloneRange() ?? null;
+
+    linkDialogContextRef.current = {
+      ...snapshot,
+      range: rangeSnapshot,
+      currentHref: initialHref,
+      component: selectedComponent,
+      componentId:
+        selectedComponent?.getId?.() ??
+        String(selectedComponent?.get?.('id') ?? ''),
+      selectedText,
+      blockText,
+      hasSelectedText,
+    };
+    setLinkDialogError('');
+    setLinkDialogMode(hasSelectedText ? 'text' : 'block');
+    setLinkDialogUrl(initialHref);
+    setIsLinkDialogOpen(true);
+  };
+
+  const closeLinkDialog = () => {
+    setIsLinkDialogOpen(false);
+    setLinkDialogUrl('');
+    setLinkDialogError('');
+    setLinkDialogMode('text');
+    linkDialogContextRef.current = null;
+  };
+
+  const captureCurrentRteRange = () => {
+    const frameDoc = editorRef.current?.Canvas?.getDocument?.();
+    const frameSelection = frameDoc?.getSelection?.();
+    if (!frameSelection || frameSelection.rangeCount === 0) {
+      return;
+    }
+    lastRteRangeRef.current = frameSelection.getRangeAt(0).cloneRange();
+  };
+
+  const prepareRteSelection = (): Selection | null => {
+    const frameDoc = editorRef.current?.Canvas?.getDocument?.();
+    const frameSelection = frameDoc?.getSelection?.();
+    const cachedRange = lastRteRangeRef.current;
+    if (!frameSelection || !cachedRange) {
+      return frameSelection ?? null;
+    }
+
+    if (frameSelection.rangeCount === 0 || frameSelection.toString().trim() === '') {
+      frameSelection.removeAllRanges();
+      frameSelection.addRange(cachedRange.cloneRange());
+    }
+
+    return frameSelection;
+  };
+
+  const restoreLinkSelection = (): { selection: Selection | null; range: Range } | null => {
+    const context = linkDialogContextRef.current;
+    if (!context) {
+      return null;
+    }
+
+    const rangeSnapshot = context.range;
+    if (!rangeSnapshot) {
+      return null;
+    }
+
+    const safeRange = rangeSnapshot.cloneRange();
+    const ownerDoc = safeRange.commonAncestorContainer.ownerDocument;
+    if (!ownerDoc) {
+      return null;
+    }
+
+    // Focus can move out of iframe when popup is open.
+    // Restore when possible, but still continue with saved range.
+    const frameDoc = editorRef.current?.Canvas?.getDocument?.();
+    const selection =
+      frameDoc?.getSelection?.() ??
+      ownerDoc.getSelection?.() ??
+      context.rte.selection();
+
+    if (selection) {
+      try {
+        selection.removeAllRanges();
+        selection.addRange(safeRange.cloneRange());
+      } catch {
+        // Keep going with saved range fallback.
+      }
+    }
+
+    return {
+      selection,
+      range:
+        selection && selection.rangeCount > 0
+          ? selection.getRangeAt(0).cloneRange()
+          : safeRange,
+    };
+  };
+
+  const handleLinkDialogSave = () => {
+    const context = linkDialogContextRef.current;
+    if (!context) {
+      closeLinkDialog();
+      return;
+    }
+
+    const selectedComponent = context.component ?? selectedComponentRef.current;
+    const selectedType = String(selectedComponent?.get?.('type') ?? '');
+    const normalizedHref = normalizeLinkInput(linkDialogUrl);
+    if (!normalizedHref) {
+      setLinkDialogError('Enter a valid URL first.');
+      return;
+    }
+
+    if (linkDialogMode === 'block') {
+      if (!selectedComponent || selectedType !== 'mj-text') {
+        setLinkDialogError('Whole-block link is available for text blocks only.');
+        return;
+      }
+      applyTextLinkToComponent(selectedComponent, {
+        href: normalizedHref,
+        target: getTextLinkStateFromComponent(selectedComponent).target,
+      });
+      keepComponentSelected(selectedComponent);
+      refreshCanvasRef.current?.();
+      closeLinkDialog();
+      return;
+    }
+
+    const restored = restoreLinkSelection();
+    if (!restored) {
+      setLinkDialogError('Select text first, or switch to Whole block mode.');
+      return;
+    }
+
+    const selectedText = restored.range.toString().trim();
+    if (!selectedText || restored.range.collapsed) {
+      setLinkDialogError('Select text first, or switch to Whole block mode.');
+      return;
+    }
+
+    const linkedAnchor = applyLinkToRange(restored.range, normalizedHref);
+    if (!linkedAnchor) {
+      setLinkDialogError('Could not apply link to the current selection.');
+      return;
+    }
+
+    setLinkDialogError('');
+    if (selectedComponent) {
+      keepComponentSelected(selectedComponent);
+    }
+    refreshCanvasRef.current?.();
+    closeLinkDialog();
+  };
+
+  const handleLinkDialogRemove = () => {
+    const context = linkDialogContextRef.current;
+    if (!context) {
+      closeLinkDialog();
+      return;
+    }
+
+    const selectedComponent = context.component ?? selectedComponentRef.current;
+    const selectedType = String(selectedComponent?.get?.('type') ?? '');
+    if (linkDialogMode === 'block') {
+      if (!selectedComponent || selectedType !== 'mj-text') {
+        setLinkDialogError('Whole-block link removal is available for text blocks only.');
+        return;
+      }
+      applyTextLinkToComponent(selectedComponent, {
+        href: '',
+        target: getTextLinkStateFromComponent(selectedComponent).target,
+      });
+      keepComponentSelected(selectedComponent);
+      refreshCanvasRef.current?.();
+      closeLinkDialog();
+      return;
+    }
+
+    const restored = restoreLinkSelection();
+    if (!restored) {
+      setLinkDialogError('Select linked text first, or switch to Whole block mode.');
+      return;
+    }
+
+    const anchor = getAnchorElementFromRange(restored.range);
+    if (anchor) {
+      unwrapAnchorElement(anchor);
+    } else {
+      setLinkDialogError('No link found in the selected text.');
+      return;
+    }
+
+    setLinkDialogError('');
+    if (selectedComponent) {
+      keepComponentSelected(selectedComponent);
+    }
+    refreshCanvasRef.current?.();
+    closeLinkDialog();
+  };
+
+  const emitMjmlChangeSafely = (mjml: string) => {
+    try {
+      onMjmlChangeRef.current?.(mjml);
+    } catch (error) {
+      console.error('[LayoutTemplateEditor] onMjmlChange callback failed', error);
+    }
+  };
+
+  const emitHtmlChangeSafely = (html: string) => {
+    try {
+      onChangeRef.current(html);
+    } catch (error) {
+      console.error('[LayoutTemplateEditor] onChange callback failed', error);
+    }
   };
 
   const keepComponentSelected = (component: GrapesComponentModel | null) => {
@@ -1229,6 +1821,21 @@ export function LayoutTemplateEditor({
   }, [onUserEdit]);
 
   useEffect(() => {
+    if (!isLinkDialogOpen) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      linkDialogInputRef.current?.focus();
+      linkDialogInputRef.current?.select();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isLinkDialogOpen]);
+
+  useEffect(() => {
     if (designJson) {
       onDesignChangeRef.current?.(designJson);
     }
@@ -1237,6 +1844,8 @@ export function LayoutTemplateEditor({
   useEffect(() => {
     let disposed = false;
     let assetModalObserver: MutationObserver | null = null;
+    let frameToolbarListenersCleanup: (() => void) | null = null;
+    let toolbarPositionRaf: number | null = null;
 
     async function init() {
       if (!containerRef.current || editorRef.current) {
@@ -1293,6 +1902,12 @@ export function LayoutTemplateEditor({
                 },
               ),
           ],
+          richTextEditor: {
+            actions: buildRichTextActions({
+              onOpenLinkDialog: openLinkDialog,
+              prepareSelection: prepareRteSelection,
+            }),
+          },
           components: initialMjmlRef.current,
         }) as GrapesEditorInstance;
 
@@ -1301,6 +1916,80 @@ export function LayoutTemplateEditor({
       if (fullHeight) {
         editor.setDevice?.('Desktop');
       }
+
+      const queueRteToolbarPosition = () => {
+        if (!containerRef.current) {
+          return;
+        }
+
+        if (toolbarPositionRaf !== null) {
+          window.cancelAnimationFrame(toolbarPositionRaf);
+        }
+
+        toolbarPositionRaf = window.requestAnimationFrame(() => {
+          toolbarPositionRaf = null;
+          positionRteToolbar(
+            editor,
+            containerRef.current as HTMLElement,
+            (editor.getSelected?.() as GrapesComponentModel | null) ?? null,
+          );
+        });
+      };
+
+      const attachFrameToolbarListeners = () => {
+        frameToolbarListenersCleanup?.();
+
+        const frameDoc = editor.Canvas?.getDocument?.();
+        const frameWin = editor.Canvas?.getWindow?.();
+        if (!frameDoc || !frameWin) {
+          return;
+        }
+
+        const onSelectionUpdate = () => {
+          captureCurrentRteRange();
+          queueRteToolbarPosition();
+        };
+
+        frameDoc.addEventListener('selectionchange', onSelectionUpdate, true);
+        frameDoc.addEventListener('mouseup', onSelectionUpdate, true);
+        frameDoc.addEventListener('keyup', onSelectionUpdate, true);
+        frameWin.addEventListener('scroll', queueRteToolbarPosition, true);
+
+        frameToolbarListenersCleanup = () => {
+          frameDoc.removeEventListener('selectionchange', onSelectionUpdate, true);
+          frameDoc.removeEventListener('mouseup', onSelectionUpdate, true);
+          frameDoc.removeEventListener('keyup', onSelectionUpdate, true);
+          frameWin.removeEventListener('scroll', queueRteToolbarPosition, true);
+        };
+      };
+
+      const ensureRteToolbarInteraction = () => {
+        const toolbarEl = document.querySelector('.gjs-rte-toolbar') as HTMLElement | null;
+        if (!toolbarEl || toolbarEl.dataset.mjmlToolbarSelectionGuard === 'true') {
+          return;
+        }
+
+        toolbarEl.dataset.mjmlToolbarSelectionGuard = 'true';
+        toolbarEl.addEventListener(
+          'mousedown',
+          (event) => {
+            const target = event.target as HTMLElement | null;
+            if (!target) {
+              return;
+            }
+
+            if (target.closest('select')) {
+              event.stopPropagation();
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            prepareRteSelection();
+          },
+          true,
+        );
+      };
 
       const ensureCanvasScroll = () => {
         const frameBody = editor.Canvas?.getBody?.();
@@ -1473,9 +2162,37 @@ export function LayoutTemplateEditor({
       });
 
       editor.on('load', ensureCanvasScroll);
+      editor.on('load', attachFrameToolbarListeners);
       editor.on('load', injectImageManagerButton);
+      editor.on('load', ensureRteToolbarInteraction);
       editor.on('modal:open', injectImageManagerButton);
+      editor.on('rte:enable', ensureRteToolbarInteraction);
       editor.on('update', ensureCanvasScroll);
+      const startInlineTextEdit = (component: GrapesComponentModel) => {
+        const type = String(component.get('type') ?? '');
+        if (!supportsInlineTextEditing(type)) {
+          return;
+        }
+
+        if (component.get('editable') === false) {
+          component.set('editable', true, { silent: true });
+        }
+
+        window.setTimeout(() => {
+          const selectedNow = editor.getSelected?.() as GrapesComponentModel | null;
+          if (selectedNow !== component) {
+            return;
+          }
+
+          const selectedEl = component.getEl?.();
+          if (selectedEl) {
+            selectedEl.setAttribute('contenteditable', 'true');
+            selectedEl.focus();
+          }
+          queueRteToolbarPosition();
+        }, 0);
+      };
+
       editor.on('component:selected', (component) => {
         if (!fullHeight) {
           return;
@@ -1484,12 +2201,18 @@ export function LayoutTemplateEditor({
         setSelectedComponent(component as GrapesComponentModel);
         bumpSelectedComponent();
         setActiveRightPanel('traits');
+        startInlineTextEdit(component as GrapesComponentModel);
+        captureCurrentRteRange();
+        queueRteToolbarPosition();
       });
       editor.on('component:deselected', () => {
         const currentSelected = editor.getSelected?.() as GrapesComponentModel | null;
         if (currentSelected) {
           setSelectedComponent(currentSelected);
           bumpSelectedComponent();
+          startInlineTextEdit(currentSelected);
+          captureCurrentRteRange();
+          queueRteToolbarPosition();
           return;
         }
         setSelectedComponent(null);
@@ -1558,11 +2281,14 @@ export function LayoutTemplateEditor({
         }
       });
       ensureCanvasScroll();
+      ensureRteToolbarInteraction();
+      captureCurrentRteRange();
+      queueRteToolbarPosition();
 
       const syncCompiledHtml = async () => {
         const mjml = toMjmlFromEditor(editor);
         lastEmittedMjmlRef.current = mjml;
-        onMjmlChangeRef.current?.(mjml);
+        emitMjmlChangeSafely(mjml);
 
         const currentVersion = ++syncVersionRef.current;
         try {
@@ -1573,7 +2299,7 @@ export function LayoutTemplateEditor({
 
           if (rendered.html) {
             lastHtmlRef.current = rendered.html;
-            onChangeRef.current(rendered.html);
+            emitHtmlChangeSafely(rendered.html);
             return;
           }
         } catch {
@@ -1583,7 +2309,7 @@ export function LayoutTemplateEditor({
         const fallbackHtml = editor.getHtml();
         if (!disposed && currentVersion === syncVersionRef.current) {
           lastHtmlRef.current = fallbackHtml;
-          onChangeRef.current(fallbackHtml);
+          emitHtmlChangeSafely(fallbackHtml);
         }
       };
 
@@ -1619,6 +2345,10 @@ export function LayoutTemplateEditor({
     return () => {
       disposed = true;
       assetModalObserver?.disconnect();
+      frameToolbarListenersCleanup?.();
+      if (toolbarPositionRaf !== null) {
+        window.cancelAnimationFrame(toolbarPositionRaf);
+      }
       if (updateTimerRef.current) {
         clearTimeout(updateTimerRef.current);
       }
@@ -1767,6 +2497,11 @@ export function LayoutTemplateEditor({
       : isTextComponent
         ? 'Text block'
         : 'Component';
+  const linkDialogContext = linkDialogContextRef.current;
+  const linkDialogSelectedText = (linkDialogContext?.selectedText ?? '').trim();
+  const linkDialogBlockText = (linkDialogContext?.blockText ?? '').trim();
+  const linkDialogCanUseBlockMode =
+    String(linkDialogContext?.component?.get?.('type') ?? '') === 'mj-text';
 
   const imageFileName = selectedImageSrc.split('/').pop() ?? 'image';
   const imageSize = `${selectedAttributes.width ?? selectedStyles.width ?? '-'} x ${
@@ -2550,6 +3285,82 @@ export function LayoutTemplateEditor({
             background: transparent !important;
           }
 
+          .mjml-shell .gjs-rte-toolbar {
+            position: fixed !important;
+            z-index: 9999 !important;
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            gap: 4px 2px !important;
+            width: fit-content !important;
+            max-width: calc(100vw - 16px) !important;
+            padding: 4px !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            background: #000000 !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+          }
+
+          .mjml-shell .gjs-rte-actionbar {
+            z-index: 9999 !important;
+            background: #000000 !important;
+            border-radius: 8px !important;
+            padding: 2px !important;
+          }
+
+          .mjml-shell .gjs-rte-toolbar .gjs-rte-action {
+            min-width: 0 !important;
+            min-height: 28px !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 6px !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 6px !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            max-width: none !important;
+            white-space: nowrap !important;
+          }
+
+          .mjml-shell .gjs-rte-toolbar .gjs-rte-action:hover {
+            border-color: #7dd3fc !important;
+            background: #f0f9ff !important;
+          }
+
+          .mjml-shell .gjs-rte-select {
+            height: 26px !important;
+            min-width: 0 !important;
+            width: auto !important;
+            border: 0 !important;
+            outline: none !important;
+            background: transparent !important;
+            color: #0f172a !important;
+            font-size: 12px !important;
+            white-space: nowrap !important;
+          }
+
+          .mjml-shell .gjs-rte-select--font {
+            width: auto !important;
+          }
+
+          .mjml-shell .gjs-rte-select--var {
+            width: auto !important;
+          }
+
+          .mjml-shell .gjs-rte-color {
+            width: 22px !important;
+            height: 22px !important;
+            border: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            cursor: pointer !important;
+          }
+
           .mjml-shell .gjs-frame-wrapper,
           .mjml-shell .gjs-frame {
             overflow: visible !important;
@@ -2854,6 +3665,116 @@ export function LayoutTemplateEditor({
           }}
           onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
         />
+
+        {isLinkDialogOpen ? (
+          <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-900/45 p-4">
+            <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+              <div className="text-lg font-semibold text-slate-900">Edit Link</div>
+              <div className="mt-3 text-sm text-slate-600">
+                Add or update the link for selected text or the whole text block.
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+                  <input
+                    type="radio"
+                    name="link-mode-full"
+                    checked={linkDialogMode === 'text'}
+                    onChange={() => {
+                      setLinkDialogError('');
+                      setLinkDialogMode('text');
+                    }}
+                  />
+                  Selected text
+                </label>
+                <label
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold',
+                    linkDialogCanUseBlockMode
+                      ? 'border-slate-300 text-slate-700'
+                      : 'border-slate-200 text-slate-400',
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="link-mode-full"
+                    checked={linkDialogMode === 'block'}
+                    disabled={!linkDialogCanUseBlockMode}
+                    onChange={() => {
+                      setLinkDialogError('');
+                      setLinkDialogMode('block');
+                    }}
+                  />
+                  Whole text block
+                </label>
+              </div>
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-700">Selected text</div>
+                <div className="mt-1 text-xs text-slate-600">
+                  {linkDialogSelectedText || 'No text selected'}
+                </div>
+              </div>
+              {linkDialogCanUseBlockMode ? (
+                <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="text-xs font-semibold text-slate-700">Block text</div>
+                  <div className="mt-1 text-xs text-slate-600 line-clamp-3">
+                    {linkDialogBlockText || 'No block text found'}
+                  </div>
+                </div>
+              ) : null}
+              <label className="mt-4 block">
+                <span className="mb-1 block text-xs font-semibold text-slate-700">Link URL</span>
+                <input
+                  ref={linkDialogInputRef}
+                  type="text"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                  placeholder="https://example.com"
+                  value={linkDialogUrl}
+                  onChange={(event) => {
+                    setLinkDialogError('');
+                    setLinkDialogUrl(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      handleLinkDialogSave();
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      closeLinkDialog();
+                    }
+                  }}
+                />
+              </label>
+              {linkDialogError ? (
+                <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {linkDialogError}
+                </div>
+              ) : null}
+              <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-rose-300 bg-rose-50 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                  onClick={handleLinkDialogRemove}
+                >
+                  Remove link
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={closeLinkDialog}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-[#0b6886] bg-[#0b6886] px-3 text-sm font-semibold text-white hover:bg-[#07516a]"
+                  onClick={handleLinkDialogSave}
+                >
+                  Save link
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -2914,6 +3835,116 @@ export function LayoutTemplateEditor({
         }}
         onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
       />
+
+      {isLinkDialogOpen ? (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="text-lg font-semibold text-slate-900">Edit Link</div>
+            <div className="mt-3 text-sm text-slate-600">
+              Add or update the link for selected text or the whole text block.
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="radio"
+                  name="link-mode-compact"
+                  checked={linkDialogMode === 'text'}
+                  onChange={() => {
+                    setLinkDialogError('');
+                    setLinkDialogMode('text');
+                  }}
+                />
+                Selected text
+              </label>
+              <label
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold',
+                  linkDialogCanUseBlockMode
+                    ? 'border-slate-300 text-slate-700'
+                    : 'border-slate-200 text-slate-400',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="link-mode-compact"
+                  checked={linkDialogMode === 'block'}
+                  disabled={!linkDialogCanUseBlockMode}
+                  onChange={() => {
+                    setLinkDialogError('');
+                    setLinkDialogMode('block');
+                  }}
+                />
+                Whole text block
+              </label>
+            </div>
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs font-semibold text-slate-700">Selected text</div>
+              <div className="mt-1 text-xs text-slate-600">
+                {linkDialogSelectedText || 'No text selected'}
+              </div>
+            </div>
+            {linkDialogCanUseBlockMode ? (
+              <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-700">Block text</div>
+                <div className="mt-1 text-xs text-slate-600 line-clamp-3">
+                  {linkDialogBlockText || 'No block text found'}
+                </div>
+              </div>
+            ) : null}
+            <label className="mt-4 block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">Link URL</span>
+              <input
+                ref={linkDialogInputRef}
+                type="text"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                placeholder="https://example.com"
+                value={linkDialogUrl}
+                onChange={(event) => {
+                  setLinkDialogError('');
+                  setLinkDialogUrl(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleLinkDialogSave();
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeLinkDialog();
+                  }
+                }}
+              />
+            </label>
+            {linkDialogError ? (
+              <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                {linkDialogError}
+              </div>
+            ) : null}
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-rose-300 bg-rose-50 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                onClick={handleLinkDialogRemove}
+              >
+                Remove link
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={closeLinkDialog}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-[#0b6886] bg-[#0b6886] px-3 text-sm font-semibold text-white hover:bg-[#07516a]"
+                onClick={handleLinkDialogSave}
+              >
+                Save link
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

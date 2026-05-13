@@ -498,9 +498,9 @@ export default function TemplatesPage() {
                 onClick={openHtmlPersonalCreatorPage}
               >
                 <Code2 className="mb-4 h-8 w-8 text-sky-600" />
-                <p className="text-lg font-semibold text-slate-900">HTML Editor</p>
+                <p className="text-lg font-semibold text-slate-900">Custom Editor (GrapesJS + MJML)</p>
                 <p className="mt-2 text-sm text-slate-600">
-                  Create your personal template directly with HTML markup.
+                  Create your personal template with full visual drag-and-drop control.
                 </p>
               </button>
             </div>
