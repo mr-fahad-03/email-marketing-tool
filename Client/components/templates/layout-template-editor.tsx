@@ -1145,12 +1145,25 @@ function positionRteToolbar(
   selectedComponent: GrapesComponentModel | null,
 ): void {
   const toolbarEl = document.querySelector('.gjs-rte-toolbar') as HTMLElement | null;
-  if (!toolbarEl || !selectedComponent) {
+  if (!toolbarEl) {
     return;
   }
 
+  if (!selectedComponent) {
+    toolbarEl.style.display = 'none';
+    return;
+  }
+
+  const selectedType = String(selectedComponent.get?.('type') ?? '');
+  if (!supportsInlineTextEditing(selectedType)) {
+    toolbarEl.style.display = 'none';
+    return;
+  }
+
+  toolbarEl.style.display = '';
   const anchorRect = getToolbarAnchorRect(editor, selectedComponent);
   if (!anchorRect) {
+    toolbarEl.style.display = 'none';
     return;
   }
 
@@ -1213,12 +1226,20 @@ export function LayoutTemplateEditor({
   const [selectedComponent, setSelectedComponent] = useState<GrapesComponentModel | null>(null);
   const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
   const [imagePickerMode, setImagePickerMode] = useState<ImagePickerMode>('image');
-  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [isTextLinkDialogOpen, setIsTextLinkDialogOpen] = useState(false);
   const [linkDialogUrl, setLinkDialogUrl] = useState('');
   const [linkDialogError, setLinkDialogError] = useState('');
   const [linkDialogMode, setLinkDialogMode] = useState<'text' | 'block'>('text');
   const linkDialogContextRef = useRef<LinkDialogSnapshot | null>(null);
   const linkDialogInputRef = useRef<HTMLInputElement | null>(null);
+  const [isImageLinkDialogOpen, setIsImageLinkDialogOpen] = useState(false);
+  const [imageLinkDialogUrl, setImageLinkDialogUrl] = useState('');
+  const [imageLinkDialogTarget, setImageLinkDialogTarget] = useState(DEFAULT_LINK_TARGET);
+  const [imageLinkDialogError, setImageLinkDialogError] = useState('');
+  const [imageLinkDialogDetails, setImageLinkDialogDetails] = useState('');
+  const imageLinkDialogComponentRef = useRef<GrapesComponentModel | null>(null);
+  const imageLinkDialogInputRef = useRef<HTMLInputElement | null>(null);
+  const skipNextImageAutoOpenRef = useRef(false);
   const [, forceSelectedComponentRefresh] = useState(0);
 
   const shellId = useMemo(() => `mjml-shell-${Math.random().toString(36).slice(2, 10)}`, []);
@@ -1244,13 +1265,62 @@ export function LayoutTemplateEditor({
     forceSelectedComponentRefresh((prev) => prev + 1);
   };
 
+  const openImageLinkDialog = (component: GrapesComponentModel | null) => {
+    const imageComponent = component;
+    if (!imageComponent || String(imageComponent.get?.('type') ?? '') !== 'mj-image') {
+      setImageLinkDialogError('Select an image first.');
+      return;
+    }
+
+    const attrs = imageComponent.getAttributes?.() ?? {};
+    const imageHref = normalizeLinkInput(attrs.href ?? '');
+    const imageTarget = normalizeLinkTarget(attrs.target);
+    const imageDetails = (attrs.alt ?? '').trim() || (attrs.src ?? '').trim() || 'Selected image';
+
+    closeTextLinkDialog();
+    imageLinkDialogComponentRef.current = imageComponent;
+    setImageLinkDialogError('');
+    setImageLinkDialogUrl(imageHref);
+    setImageLinkDialogTarget(imageTarget);
+    setImageLinkDialogDetails(imageDetails);
+    setIsImageLinkDialogOpen(true);
+  };
+
+  const closeImageLinkDialog = () => {
+    setIsImageLinkDialogOpen(false);
+    setImageLinkDialogUrl('');
+    setImageLinkDialogTarget(DEFAULT_LINK_TARGET);
+    setImageLinkDialogError('');
+    setImageLinkDialogDetails('');
+    imageLinkDialogComponentRef.current = null;
+  };
+
+  const maybeAutoOpenImageLinkDialog = (component: GrapesComponentModel | null) => {
+    const type = String(component?.get?.('type') ?? '');
+    if (type !== 'mj-image') {
+      return;
+    }
+
+    if (skipNextImageAutoOpenRef.current) {
+      skipNextImageAutoOpenRef.current = false;
+      return;
+    }
+
+    setLinkDialogError('');
+    setIsTextLinkDialogOpen(false);
+    openImageLinkDialog(component);
+  };
+
   const openLinkDialog = (snapshot: LinkDialogSnapshot) => {
     const selectedComponent = selectedComponentRef.current;
     const selectedType = String(selectedComponent?.get?.('type') ?? '');
+    if (selectedType === 'mj-image') {
+      openImageLinkDialog(selectedComponent);
+      return;
+    }
+
     const wholeBlockHref =
-      selectedType === 'mj-text'
-        ? getTextLinkStateFromComponent(selectedComponent).href
-        : '';
+      selectedType === 'mj-text' ? getTextLinkStateFromComponent(selectedComponent).href : '';
     const blockText = htmlToPlainText(getComponentEditableContent(selectedComponent));
     const selectedText = snapshot.range?.toString().trim() ?? '';
     const hasSelectedText = Boolean(selectedText);
@@ -1272,11 +1342,12 @@ export function LayoutTemplateEditor({
     setLinkDialogError('');
     setLinkDialogMode(hasSelectedText ? 'text' : 'block');
     setLinkDialogUrl(initialHref);
-    setIsLinkDialogOpen(true);
+    closeImageLinkDialog();
+    setIsTextLinkDialogOpen(true);
   };
 
-  const closeLinkDialog = () => {
-    setIsLinkDialogOpen(false);
+  const closeTextLinkDialog = () => {
+    setIsTextLinkDialogOpen(false);
     setLinkDialogUrl('');
     setLinkDialogError('');
     setLinkDialogMode('text');
@@ -1354,7 +1425,7 @@ export function LayoutTemplateEditor({
   const handleLinkDialogSave = () => {
     const context = linkDialogContextRef.current;
     if (!context) {
-      closeLinkDialog();
+      closeTextLinkDialog();
       return;
     }
 
@@ -1371,13 +1442,14 @@ export function LayoutTemplateEditor({
         setLinkDialogError('Whole-block link is available for text blocks only.');
         return;
       }
+
       applyTextLinkToComponent(selectedComponent, {
         href: normalizedHref,
         target: getTextLinkStateFromComponent(selectedComponent).target,
       });
       keepComponentSelected(selectedComponent);
       refreshCanvasRef.current?.();
-      closeLinkDialog();
+      closeTextLinkDialog();
       return;
     }
 
@@ -1404,13 +1476,13 @@ export function LayoutTemplateEditor({
       keepComponentSelected(selectedComponent);
     }
     refreshCanvasRef.current?.();
-    closeLinkDialog();
+    closeTextLinkDialog();
   };
 
   const handleLinkDialogRemove = () => {
     const context = linkDialogContextRef.current;
     if (!context) {
-      closeLinkDialog();
+      closeTextLinkDialog();
       return;
     }
 
@@ -1421,13 +1493,14 @@ export function LayoutTemplateEditor({
         setLinkDialogError('Whole-block link removal is available for text blocks only.');
         return;
       }
+
       applyTextLinkToComponent(selectedComponent, {
         href: '',
         target: getTextLinkStateFromComponent(selectedComponent).target,
       });
       keepComponentSelected(selectedComponent);
       refreshCanvasRef.current?.();
-      closeLinkDialog();
+      closeTextLinkDialog();
       return;
     }
 
@@ -1450,7 +1523,48 @@ export function LayoutTemplateEditor({
       keepComponentSelected(selectedComponent);
     }
     refreshCanvasRef.current?.();
-    closeLinkDialog();
+    closeTextLinkDialog();
+  };
+
+  const handleImageLinkDialogSave = () => {
+    const selectedComponent = imageLinkDialogComponentRef.current ?? selectedComponentRef.current;
+    if (!selectedComponent || String(selectedComponent.get?.('type') ?? '') !== 'mj-image') {
+      setImageLinkDialogError('Select an image first.');
+      return;
+    }
+
+    const normalizedHref = normalizeLinkInput(imageLinkDialogUrl);
+    if (!normalizedHref) {
+      setImageLinkDialogError('Enter a valid URL first.');
+      return;
+    }
+
+    patchComponentAttributes(
+      selectedComponent,
+      {
+        href: normalizedHref,
+        target: normalizeLinkTarget(imageLinkDialogTarget),
+      },
+      [INHERITED_SECTION_LINK_ATTR],
+    );
+    skipNextImageAutoOpenRef.current = true;
+    keepComponentSelected(selectedComponent);
+    refreshCanvasRef.current?.();
+    closeImageLinkDialog();
+  };
+
+  const handleImageLinkDialogRemove = () => {
+    const selectedComponent = imageLinkDialogComponentRef.current ?? selectedComponentRef.current;
+    if (!selectedComponent || String(selectedComponent.get?.('type') ?? '') !== 'mj-image') {
+      setImageLinkDialogError('Select an image first.');
+      return;
+    }
+
+    removeHrefFromComponent(selectedComponent);
+    skipNextImageAutoOpenRef.current = true;
+    keepComponentSelected(selectedComponent);
+    refreshCanvasRef.current?.();
+    closeImageLinkDialog();
   };
 
   const emitMjmlChangeSafely = (mjml: string) => {
@@ -1821,7 +1935,7 @@ export function LayoutTemplateEditor({
   }, [onUserEdit]);
 
   useEffect(() => {
-    if (!isLinkDialogOpen) {
+    if (!isTextLinkDialogOpen) {
       return;
     }
 
@@ -1833,7 +1947,22 @@ export function LayoutTemplateEditor({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [isLinkDialogOpen]);
+  }, [isTextLinkDialogOpen]);
+
+  useEffect(() => {
+    if (!isImageLinkDialogOpen) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      imageLinkDialogInputRef.current?.focus();
+      imageLinkDialogInputRef.current?.select();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isImageLinkDialogOpen]);
 
   useEffect(() => {
     if (designJson) {
@@ -2197,13 +2326,15 @@ export function LayoutTemplateEditor({
         if (!fullHeight) {
           return;
         }
-        ensureComponentTraits(component);
-        setSelectedComponent(component as GrapesComponentModel);
+        const selected = component as GrapesComponentModel;
+        ensureComponentTraits(selected);
+        setSelectedComponent(selected);
         bumpSelectedComponent();
         setActiveRightPanel('traits');
-        startInlineTextEdit(component as GrapesComponentModel);
+        startInlineTextEdit(selected);
         captureCurrentRteRange();
         queueRteToolbarPosition();
+        maybeAutoOpenImageLinkDialog(selected);
       });
       editor.on('component:deselected', () => {
         const currentSelected = editor.getSelected?.() as GrapesComponentModel | null;
@@ -2213,10 +2344,15 @@ export function LayoutTemplateEditor({
           startInlineTextEdit(currentSelected);
           captureCurrentRteRange();
           queueRteToolbarPosition();
+          maybeAutoOpenImageLinkDialog(currentSelected);
           return;
         }
         setSelectedComponent(null);
         bumpSelectedComponent();
+        const toolbarEl = document.querySelector('.gjs-rte-toolbar') as HTMLElement | null;
+        if (toolbarEl) {
+          toolbarEl.style.display = 'none';
+        }
       });
       editor.on('component:update:attributes', (component) => {
         const cmp = component as GrapesComponentModel;
@@ -3666,10 +3802,10 @@ export function LayoutTemplateEditor({
           onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
         />
 
-        {isLinkDialogOpen ? (
+        {isTextLinkDialogOpen ? (
           <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-900/45 p-4">
             <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
-              <div className="text-lg font-semibold text-slate-900">Edit Link</div>
+              <div className="text-lg font-semibold text-slate-900">Edit Text Link</div>
               <div className="mt-3 text-sm text-slate-600">
                 Add or update the link for selected text or the whole text block.
               </div>
@@ -3739,7 +3875,7 @@ export function LayoutTemplateEditor({
                       handleLinkDialogSave();
                     } else if (event.key === 'Escape') {
                       event.preventDefault();
-                      closeLinkDialog();
+                      closeTextLinkDialog();
                     }
                   }}
                 />
@@ -3760,7 +3896,7 @@ export function LayoutTemplateEditor({
                 <button
                   type="button"
                   className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  onClick={closeLinkDialog}
+                  onClick={closeTextLinkDialog}
                 >
                   Cancel
                 </button>
@@ -3768,6 +3904,87 @@ export function LayoutTemplateEditor({
                   type="button"
                   className="inline-flex h-9 items-center justify-center rounded-md border border-[#0b6886] bg-[#0b6886] px-3 text-sm font-semibold text-white hover:bg-[#07516a]"
                   onClick={handleLinkDialogSave}
+                >
+                  Save link
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {isImageLinkDialogOpen ? (
+          <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-900/45 p-4">
+            <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+              <div className="text-lg font-semibold text-slate-900">Edit Image Link</div>
+              <div className="mt-3 text-sm text-slate-600">
+                Add or update the link for the selected image.
+              </div>
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-700">Image details</div>
+                <div className="mt-1 text-xs text-slate-600 line-clamp-3">
+                  {imageLinkDialogDetails || 'Selected image'}
+                </div>
+              </div>
+              <label className="mt-4 block">
+                <span className="mb-1 block text-xs font-semibold text-slate-700">Link URL</span>
+                <input
+                  ref={imageLinkDialogInputRef}
+                  type="text"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                  placeholder="https://example.com"
+                  value={imageLinkDialogUrl}
+                  onChange={(event) => {
+                    setImageLinkDialogError('');
+                    setImageLinkDialogUrl(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      handleImageLinkDialogSave();
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      closeImageLinkDialog();
+                    }
+                  }}
+                />
+              </label>
+              <label className="mt-3 block">
+                <span className="mb-1 block text-xs font-semibold text-slate-700">Link target</span>
+                <select
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                  value={imageLinkDialogTarget}
+                  onChange={(event) => {
+                    setImageLinkDialogError('');
+                    setImageLinkDialogTarget(event.target.value);
+                  }}
+                >
+                  <option value={DEFAULT_LINK_TARGET}>Same tab</option>
+                  <option value="_blank">New tab</option>
+                </select>
+              </label>
+              {imageLinkDialogError ? (
+                <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {imageLinkDialogError}
+                </div>
+              ) : null}
+              <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-rose-300 bg-rose-50 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                  onClick={handleImageLinkDialogRemove}
+                >
+                  Remove link
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={closeImageLinkDialog}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-[#0b6886] bg-[#0b6886] px-3 text-sm font-semibold text-white hover:bg-[#07516a]"
+                  onClick={handleImageLinkDialogSave}
                 >
                   Save link
                 </button>
@@ -3836,10 +4053,10 @@ export function LayoutTemplateEditor({
         onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
       />
 
-      {isLinkDialogOpen ? (
+      {isTextLinkDialogOpen ? (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-900/45 p-4">
           <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="text-lg font-semibold text-slate-900">Edit Link</div>
+            <div className="text-lg font-semibold text-slate-900">Edit Text Link</div>
             <div className="mt-3 text-sm text-slate-600">
               Add or update the link for selected text or the whole text block.
             </div>
@@ -3909,7 +4126,7 @@ export function LayoutTemplateEditor({
                     handleLinkDialogSave();
                   } else if (event.key === 'Escape') {
                     event.preventDefault();
-                    closeLinkDialog();
+                    closeTextLinkDialog();
                   }
                 }}
               />
@@ -3930,7 +4147,7 @@ export function LayoutTemplateEditor({
               <button
                 type="button"
                 className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                onClick={closeLinkDialog}
+                onClick={closeTextLinkDialog}
               >
                 Cancel
               </button>
@@ -3938,6 +4155,87 @@ export function LayoutTemplateEditor({
                 type="button"
                 className="inline-flex h-9 items-center justify-center rounded-md border border-[#0b6886] bg-[#0b6886] px-3 text-sm font-semibold text-white hover:bg-[#07516a]"
                 onClick={handleLinkDialogSave}
+              >
+                Save link
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isImageLinkDialogOpen ? (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="text-lg font-semibold text-slate-900">Edit Image Link</div>
+            <div className="mt-3 text-sm text-slate-600">
+              Add or update the link for the selected image.
+            </div>
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-xs font-semibold text-slate-700">Image details</div>
+              <div className="mt-1 text-xs text-slate-600 line-clamp-3">
+                {imageLinkDialogDetails || 'Selected image'}
+              </div>
+            </div>
+            <label className="mt-4 block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">Link URL</span>
+              <input
+                ref={imageLinkDialogInputRef}
+                type="text"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                placeholder="https://example.com"
+                value={imageLinkDialogUrl}
+                onChange={(event) => {
+                  setImageLinkDialogError('');
+                  setImageLinkDialogUrl(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleImageLinkDialogSave();
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeImageLinkDialog();
+                  }
+                }}
+              />
+            </label>
+            <label className="mt-3 block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">Link target</span>
+              <select
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                value={imageLinkDialogTarget}
+                onChange={(event) => {
+                  setImageLinkDialogError('');
+                  setImageLinkDialogTarget(event.target.value);
+                }}
+              >
+                <option value={DEFAULT_LINK_TARGET}>Same tab</option>
+                <option value="_blank">New tab</option>
+              </select>
+            </label>
+            {imageLinkDialogError ? (
+              <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                {imageLinkDialogError}
+              </div>
+            ) : null}
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-rose-300 bg-rose-50 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                onClick={handleImageLinkDialogRemove}
+              >
+                Remove link
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={closeImageLinkDialog}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-[#0b6886] bg-[#0b6886] px-3 text-sm font-semibold text-white hover:bg-[#07516a]"
+                onClick={handleImageLinkDialogSave}
               >
                 Save link
               </button>
