@@ -146,6 +146,7 @@ export default function NewTemplatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFinalSaving, setIsFinalSaving] = useState(false);
   const [isHtmlNameStepOpen, setIsHtmlNameStepOpen] = useState(false);
+  const [isHtmlLeaveConfirmOpen, setIsHtmlLeaveConfirmOpen] = useState(false);
   const [htmlTemplateName, setHtmlTemplateName] = useState('');
   const autoSaveTimerRef = useRef<number | null>(null);
 
@@ -332,6 +333,24 @@ export default function NewTemplatePage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const confirmHtmlBack = () => {
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+
+    const values = form.getValues();
+    saveNewTemplateDraft(values);
+    form.reset(values);
+    markDraftSaved();
+    setIsHtmlLeaveConfirmOpen(false);
+    router.push('/dashboard/templates');
+  };
+
+  const handleHtmlBack = () => {
+    setIsHtmlLeaveConfirmOpen(true);
   };
 
   if (isLayoutNewFlow) {
@@ -527,7 +546,7 @@ export default function NewTemplatePage() {
                           type="button"
                           variant="outline"
                           className="h-8 border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100"
-                          onClick={() => router.push('/dashboard/templates')}
+                          onClick={handleHtmlBack}
                           disabled={isSubmitting}
                         >
                           <ArrowLeft className="mr-1 h-4 w-4" />
@@ -585,6 +604,34 @@ export default function NewTemplatePage() {
                   </Button>
                   <Button type="button" onClick={() => void handleHtmlFinalSave()} disabled={isSubmitting}>
                     {isSubmitting ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+
+        {isHtmlLeaveConfirmOpen ? (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/45 p-4">
+            <Card className="w-full max-w-md border-slate-300 bg-white text-slate-900 shadow-xl">
+              <CardHeader>
+                <CardTitle>Leave Editor?</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-slate-600">
+                  Your template draft will be auto-saved before you leave this page.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsHtmlLeaveConfirmOpen(false)}
+                    disabled={isSubmitting}
+                  >
+                    Stay Here
+                  </Button>
+                  <Button type="button" onClick={confirmHtmlBack} disabled={isSubmitting}>
+                    Save & Leave
                   </Button>
                 </div>
               </CardContent>

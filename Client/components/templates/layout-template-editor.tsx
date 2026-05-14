@@ -1217,6 +1217,7 @@ export function LayoutTemplateEditor({
   const onDesignChangeRef = useRef(onDesignChange);
   const onMjmlChangeRef = useRef(onMjmlChange);
   const onUserEditRef = useRef(onUserEdit);
+  const lastForwardedDesignJsonRef = useRef<string | null>(null);
   const lastRteRangeRef = useRef<Range | null>(null);
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshCanvasRef = useRef<(() => void) | null>(null);
@@ -1997,9 +1998,25 @@ export function LayoutTemplateEditor({
   }, [isImageLinkDialogOpen]);
 
   useEffect(() => {
-    if (designJson) {
-      onDesignChangeRef.current?.(designJson);
+    if (!designJson) {
+      lastForwardedDesignJsonRef.current = null;
+      return;
     }
+
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(designJson);
+    } catch {
+      // Fallback for non-serializable values: avoid infinite loops by skipping re-emit.
+      return;
+    }
+
+    if (lastForwardedDesignJsonRef.current === serialized) {
+      return;
+    }
+
+    lastForwardedDesignJsonRef.current = serialized;
+    onDesignChangeRef.current?.(designJson);
   }, [designJson]);
 
   useEffect(() => {
