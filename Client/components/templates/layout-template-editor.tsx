@@ -2,10 +2,66 @@
 
 import { Eye, Redo2, Undo2 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import 'grapesjs/dist/css/grapes.min.css';
 import { TemplateImagePickerDialog } from '@/components/templates/template-image-picker-dialog';
+import { uploadTemplateImage } from '@/lib/api/template-images';
 import { renderMjmlTemplate } from '@/lib/api/templates';
 import { cn } from '@/lib/utils';
+
+type GrapesAssetUploaderHost = {
+  onUploadStart: () => void;
+  onUploadResponse: (response: { data: unknown[] }, clb?: (json: unknown) => void) => void;
+  onUploadError: (err: unknown) => void;
+};
+
+function grapesTemplateImageAssetUpload(
+  this: GrapesAssetUploaderHost,
+  e: { dataTransfer?: DataTransfer; target?: HTMLInputElement },
+  clb?: (json: unknown) => void,
+) {
+  const files = e.dataTransfer?.files ?? e.target?.files;
+  if (!files?.length) {
+    return;
+  }
+
+  this.onUploadStart();
+
+  return (async () => {
+    try {
+      const data: Array<{ src: string; name: string; type: string }> = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files.item(i);
+        if (!file?.type.startsWith('image/')) {
+          continue;
+        }
+        const uploaded = await uploadTemplateImage({ file });
+        data.push({
+          src: uploaded.publicUrl,
+          name: uploaded.originalName,
+          type: 'image',
+        });
+      }
+
+      if (!data.length) {
+        toast.error('Only image files can be uploaded to the Image Manager.');
+        this.onUploadResponse({ data: [] }, clb);
+        return;
+      }
+
+      this.onUploadResponse({ data }, clb);
+      if (data.length === 1) {
+        toast.success('Image saved to Image Manager.');
+      } else if (data.length > 1) {
+        toast.success(`${data.length} images saved to Image Manager.`);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Image upload failed.';
+      toast.error(message);
+      this.onUploadError(error);
+    }
+  })();
+}
 
 interface LayoutTemplateEditorProps {
   value: string;
@@ -48,6 +104,8 @@ interface GrapesEditorInstance {
   AssetManager?: {
     add?: (asset: string | { src: string }) => unknown;
     close?: () => void;
+    /** GrapesJS stores the component passed to `open({ target })` here (e.g. mj-image). */
+    assetsVis?: { target?: unknown };
   };
   Modal?: {
     close?: () => void;
@@ -146,6 +204,7 @@ type BuildRichTextActionsOptions = {
   onOpenLinkDialog: (snapshot: LinkDialogSnapshot) => void;
   prepareSelection: () => Selection | null;
   onCloseToolbar: () => void;
+  syncActiveMjTextFromDom?: () => void;
 };
 
 function buildRichTextActions(options: BuildRichTextActionsOptions) {
@@ -253,7 +312,19 @@ function buildRichTextActions(options: BuildRichTextActionsOptions) {
         });
       },
     },
-    execAction('unlink', '&#128683;', 'Remove link', 'unlink'),
+    {
+      name: 'unlink',
+      icon: '&#128683;',
+      attributes: { title: 'Remove link' },
+      result: (rte: RteExec) => {
+        const selection = options.prepareSelection();
+        if (!selection || selection.rangeCount === 0) {
+          return;
+        }
+        rte.exec('unlink');
+        options.syncActiveMjTextFromDom?.();
+      },
+    },
     selectAction(
       'fontName',
       'Font family',
@@ -661,6 +732,29 @@ function setComponentHtmlContent(component: GrapesComponentModel | null, html: s
   }
 }
 
+function syncMjTextModelFromRenderedDom(component: GrapesComponentModel | null): void {
+  if (!component || String(component.get?.('type') ?? '') !== 'mj-text') {
+    return;
+  }
+
+  const el = component.getEl?.();
+  if (!el) {
+    return;
+  }
+
+  const raw = el.innerHTML?.trim() ?? '';
+  if (!raw) {
+    return;
+  }
+
+  const next = extractInnerTextHtmlCandidate(raw);
+  if (!next.trim()) {
+    return;
+  }
+
+  setComponentHtmlContent(component, next);
+}
+
 function areEquivalentLinks(
   first: { href: string; target: string },
   second: { href: string; target: string },
@@ -863,6 +957,18 @@ function getAssetUrlFromElement(assetEl: Element): string {
     previewEl?.style.backgroundImage ||
     (previewEl ? window.getComputedStyle(previewEl).backgroundImage : '');
   return fromCssUrl(backgroundImage).trim();
+}
+
+function getMjImageTargetFromAssetManager(editor: GrapesEditorInstance | null): GrapesComponentModel | null {
+  const raw = editor?.AssetManager?.assetsVis?.target;
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const cmp = raw as GrapesComponentModel;
+  if (String(cmp.get('type') ?? '') !== 'mj-image') {
+    return null;
+  }
+  return cmp;
 }
 
 function toCssUrl(input: string): string {
@@ -1226,6 +1332,7 @@ export function LayoutTemplateEditor({
   const editorRef = useRef<GrapesEditorInstance | null>(null);
   const selectedComponentRef = useRef<GrapesComponentModel | null>(null);
   const sectionBackgroundTargetRef = useRef<GrapesComponentModel | null>(null);
+  const imageReplaceTargetRef = useRef<GrapesComponentModel | null>(null);
   const applyImageManagerSelectionRef = useRef<(imageUrl: string) => void>(() => {});
   const onChangeRef = useRef(onChange);
   const onDesignChangeRef = useRef(onDesignChange);
@@ -1393,6 +1500,7 @@ export function LayoutTemplateEditor({
     normalizeImageComponentInteraction(current);
     sectionBackgroundTargetRef.current = null;
     setImagePickerMode('image');
+    imageReplaceTargetRef.current = current;
     setIsImagePickerOpen(true);
   };
 
@@ -1580,6 +1688,10 @@ export function LayoutTemplateEditor({
       return;
     }
 
+    if (selectedType === 'mj-text' && selectedComponent) {
+      syncMjTextModelFromRenderedDom(selectedComponent);
+    }
+
     setLinkDialogError('');
     if (selectedComponent) {
       keepComponentSelected(selectedComponent);
@@ -1625,6 +1737,10 @@ export function LayoutTemplateEditor({
     } else {
       setLinkDialogError('No link found in the selected text.');
       return;
+    }
+
+    if (selectedType === 'mj-text' && selectedComponent) {
+      syncMjTextModelFromRenderedDom(selectedComponent);
     }
 
     setLinkDialogError('');
@@ -1884,38 +2000,65 @@ export function LayoutTemplateEditor({
 
   const applyImageManagerSelection = (imageUrl: string) => {
     const editor = editorRef.current;
-    const component =
-      (editor?.getSelected?.() as GrapesComponentModel | null) ?? selectedComponentRef.current;
+    if (!editor) return;
 
-    editor?.AssetManager?.add?.({ src: imageUrl });
+    const fallbackSelected =
+      (editor.getSelected?.() as GrapesComponentModel | null) ?? selectedComponentRef.current;
+    const assetModalMjImage = getMjImageTargetFromAssetManager(editor);
+    const resolvedForImage =
+      imagePickerMode !== 'section-background'
+        ? imageReplaceTargetRef.current ?? assetModalMjImage ?? fallbackSelected
+        : fallbackSelected;
+
+    editor.AssetManager?.add?.({ src: imageUrl });
 
     if (imagePickerMode === 'section-background') {
-      const sectionComponent = sectionBackgroundTargetRef.current ?? component;
+      const sectionComponent = sectionBackgroundTargetRef.current ?? fallbackSelected;
       if (sectionComponent) {
         patchComponentAttributes(sectionComponent, {
           'background-url': imageUrl,
         });
-        editor?.select?.(sectionComponent);
+        // Also set on model for reactivity
+        sectionComponent.set('background-url', imageUrl);
+        
+        editor.select?.(sectionComponent);
         setSelectedComponent(sectionComponent);
         bumpSelectedComponent();
         keepComponentSelected(sectionComponent);
       }
       sectionBackgroundTargetRef.current = null;
       setImagePickerMode('image');
-    } else if (component && String(component.get?.('type') ?? '') === 'mj-image') {
-      patchComponentAttributes(component, {
-        src: imageUrl,
-      });
-      editor?.select?.(component);
-      setSelectedComponent(component);
-      bumpSelectedComponent();
-      keepComponentSelected(component);
+    } else {
+      const imageComponent =
+        resolvedForImage && String(resolvedForImage.get?.('type') ?? '') === 'mj-image'
+          ? resolvedForImage
+          : null;
+          
+      if (imageComponent) {
+        patchComponentAttributes(imageComponent, {
+          src: imageUrl,
+        });
+        // Ensure GrapesJS model reflects the change immediately
+        imageComponent.set('src', imageUrl);
+        
+        editor.select?.(imageComponent);
+        setSelectedComponent(imageComponent);
+        bumpSelectedComponent();
+        keepComponentSelected(imageComponent);
+      }
     }
 
-    editor?.AssetManager?.close?.();
-    editor?.Modal?.close?.();
+    imageReplaceTargetRef.current = null;
+
+    editor.AssetManager?.close?.();
+    editor.Modal?.close?.();
     setIsImagePickerOpen(false);
-    setTimeout(() => refreshCanvasRef.current?.(), 0);
+    
+    // Force a full refresh of the editor state and canvas
+    setTimeout(() => {
+      refreshCanvasRef.current?.();
+      editor.trigger('change:canvasOffset');
+    }, 0);
   };
   applyImageManagerSelectionRef.current = applyImageManagerSelection;
 
@@ -1938,6 +2081,7 @@ export function LayoutTemplateEditor({
     if (!selectedComponent) {
       return;
     }
+    imageReplaceTargetRef.current = null;
     sectionBackgroundTargetRef.current = selectedComponent;
     setImagePickerMode('section-background');
     setIsImagePickerOpen(true);
@@ -2143,6 +2287,10 @@ export function LayoutTemplateEditor({
                 ],
               }
             : undefined,
+          assetManager: {
+            autoAdd: true,
+            uploadFile: grapesTemplateImageAssetUpload,
+          },
           plugins: [
             (instance: unknown) =>
               (grapesMjmlPlugin as (editorInstance: never, options: Record<string, unknown>) => unknown)(
@@ -2161,6 +2309,9 @@ export function LayoutTemplateEditor({
               onOpenLinkDialog: openLinkDialog,
               prepareSelection: prepareRteSelection,
               onCloseToolbar: closeRteToolbar,
+              syncActiveMjTextFromDom: () => {
+                syncMjTextModelFromRenderedDom(selectedComponentRef.current);
+              },
             }),
           },
           components: initialMjmlRef.current,
@@ -2379,6 +2530,12 @@ export function LayoutTemplateEditor({
             editor.Modal?.close?.();
             setImagePickerMode('image');
             sectionBackgroundTargetRef.current = null;
+            const selectedNow =
+              (editor.getSelected?.() as GrapesComponentModel | null) ?? selectedComponentRef.current;
+            imageReplaceTargetRef.current =
+              selectedNow && String(selectedNow.get?.('type') ?? '') === 'mj-image'
+                ? selectedNow
+                : null;
             setIsImagePickerOpen(true);
           });
 
@@ -3948,6 +4105,7 @@ export function LayoutTemplateEditor({
             if (!open) {
               setImagePickerMode('image');
               sectionBackgroundTargetRef.current = null;
+              imageReplaceTargetRef.current = null;
             }
           }}
           onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}
@@ -4199,6 +4357,7 @@ export function LayoutTemplateEditor({
           if (!open) {
             setImagePickerMode('image');
             sectionBackgroundTargetRef.current = null;
+            imageReplaceTargetRef.current = null;
           }
         }}
         onSelectImage={(imageUrl) => applyImageManagerSelection(imageUrl)}

@@ -182,9 +182,16 @@ export async function uploadTemplateImage(input: {
     method: "POST",
     url: "/template-images/upload",
     data: formData,
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
+    // Let the browser/axios set multipart boundaries. A bare `multipart/form-data`
+    // header (or default `application/json` from the shared client) breaks Multer.
+    transformRequest: [
+      (data, headers) => {
+        if (data instanceof FormData) {
+          delete headers["Content-Type"];
+        }
+        return data;
+      },
+    ],
   });
 
   return normalizeFile(payload);

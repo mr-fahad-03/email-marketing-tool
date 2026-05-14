@@ -39,6 +39,41 @@ interface TemplateImageManagerPanelProps {
   onSelectImage?: (imageUrl: string, file: TemplateImageFile) => void;
 }
 
+function encodePublicImageUrlForDisplay(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = /^https?:\/\//i.test(trimmed)
+      ? new URL(trimmed)
+      : new URL(trimmed.startsWith("/") ? trimmed : `/${trimmed}`, "http://local.invalid");
+
+    parsed.pathname = parsed.pathname
+      .split("/")
+      .map((segment) => {
+        if (!segment) {
+          return segment;
+        }
+        try {
+          return encodeURIComponent(decodeURIComponent(segment));
+        } catch {
+          return encodeURIComponent(segment);
+        }
+      })
+      .join("/");
+
+    if (/^https?:\/\//i.test(trimmed)) {
+      return parsed.toString();
+    }
+
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return trimmed;
+  }
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof HttpClientError) {
     return error.message;
@@ -144,12 +179,16 @@ export function TemplateImageManagerPanel({
 
     setIsUploading(true);
     try {
-      await uploadTemplateImage({
+      const uploaded = await uploadTemplateImage({
         file: selected,
         folderId: currentFolderId,
       });
       toast.success("Image uploaded successfully.");
-      await loadBrowser(currentFolderId, searchQuery);
+      if (showSelectAction && onSelectImage) {
+        onSelectImage(uploaded.publicUrl, uploaded);
+      } else {
+        await loadBrowser(currentFolderId, searchQuery);
+      }
     } catch (error: unknown) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -389,7 +428,7 @@ export function TemplateImageManagerPanel({
                   <div className="mb-2 h-28 overflow-hidden rounded border border-zinc-200 bg-zinc-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={file.publicUrl}
+                      src={encodePublicImageUrlForDisplay(file.publicUrl)}
                       alt={file.originalName}
                       className="h-full w-full object-cover"
                     />
