@@ -28,11 +28,13 @@ interface GrapesEditorInstance {
   getWrapper?: () => {
     toHTML?: () => string;
     getInnerHTML?: () => string;
+    findType?: (type: string) => unknown[];
   };
   getSelected?: () => unknown;
   select?: (component: unknown) => void;
   setComponents: (input: string) => void;
   setDevice?: (name: string) => void;
+  getIcon?: (key: string) => string;
   runCommand?: (id: string, options?: Record<string, unknown>) => unknown;
   on: (eventName: string, callback: (...args: unknown[]) => void) => void;
   destroy: () => void;
@@ -84,12 +86,24 @@ type TraitDefinition = {
   placeholder?: string;
   options?: TraitOption[];
 };
+type GrapesToolbarItem = {
+  label?: string;
+  command?: string | ((editor?: GrapesEditorInstance, sender?: unknown) => unknown);
+  attributes?: Record<string, string | boolean>;
+};
 type ImagePickerMode = 'image' | 'section-background';
 
 const DEFAULT_LINK_TARGET = '_self';
 const SECTION_LINK_HREF_ATTR = 'data-section-link-href';
 const SECTION_LINK_TARGET_ATTR = 'data-section-link-target';
 const INHERITED_SECTION_LINK_ATTR = 'data-inherited-section-link';
+const IMAGE_TOOLBAR_ACTION_ATTR = 'data-template-image-toolbar-action';
+const IMAGE_TOOLBAR_ICON_LINK =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7a5 5 0 0 1 0-10h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>';
+const IMAGE_TOOLBAR_ICON_COPY =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+const IMAGE_TOOLBAR_ICON_DELETE =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
 const SECTION_CONTAINER_TYPES = new Set(['mj-section', 'mj-wrapper', 'mj-column', 'mj-hero']);
 const BACKGROUND_CAPABLE_TYPES = new Set([
@@ -1248,7 +1262,6 @@ export function LayoutTemplateEditor({
   const [imageLinkDialogDetails, setImageLinkDialogDetails] = useState('');
   const imageLinkDialogComponentRef = useRef<GrapesComponentModel | null>(null);
   const imageLinkDialogInputRef = useRef<HTMLInputElement | null>(null);
-  const skipNextImageAutoOpenRef = useRef(false);
   const [, forceSelectedComponentRefresh] = useState(0);
 
   const shellId = useMemo(() => `mjml-shell-${Math.random().toString(36).slice(2, 10)}`, []);
@@ -1304,20 +1317,83 @@ export function LayoutTemplateEditor({
     imageLinkDialogComponentRef.current = null;
   };
 
-  const maybeAutoOpenImageLinkDialog = (component: GrapesComponentModel | null) => {
-    const type = String(component?.get?.('type') ?? '');
-    if (type !== 'mj-image') {
+  const getImageToolbar = (component: GrapesComponentModel): GrapesToolbarItem[] => {
+    const icon = (name: string, fallback: string) => {
+      const fromEditor = editorRef.current?.getIcon?.(name);
+      return typeof fromEditor === 'string' && fromEditor.trim() ? fromEditor : fallback;
+    };
+
+    return [
+      {
+        label: icon('copy', IMAGE_TOOLBAR_ICON_COPY),
+        command: 'tlb-clone',
+        attributes: {
+          title: 'Copy image',
+          [IMAGE_TOOLBAR_ACTION_ATTR]: 'copy',
+        },
+      },
+      {
+        label: icon('delete', IMAGE_TOOLBAR_ICON_DELETE),
+        command: 'tlb-delete',
+        attributes: {
+          title: 'Delete image',
+          [IMAGE_TOOLBAR_ACTION_ATTR]: 'delete',
+        },
+      },
+      {
+        label: IMAGE_TOOLBAR_ICON_LINK,
+        command: () => {
+          const selectedNow =
+            (editorRef.current?.getSelected?.() as GrapesComponentModel | null) ?? component;
+          openImageLinkDialog(selectedNow);
+        },
+        attributes: {
+          title: 'Edit image link',
+          [IMAGE_TOOLBAR_ACTION_ATTR]: 'link',
+        },
+      },
+    ];
+  };
+
+  const isNormalizedImageToolbar = (toolbar: unknown): boolean => {
+    if (!Array.isArray(toolbar) || toolbar.length !== 3) {
+      return false;
+    }
+
+    const actions = toolbar.map(
+      (item) => (item as { attributes?: Record<string, string> })?.attributes?.[IMAGE_TOOLBAR_ACTION_ATTR] ?? '',
+    );
+    return actions[0] === 'copy' && actions[1] === 'delete' && actions[2] === 'link';
+  };
+
+  const normalizeImageComponentInteraction = (component: GrapesComponentModel | null) => {
+    if (!component || String(component.get?.('type') ?? '') !== 'mj-image') {
       return;
     }
 
-    if (skipNextImageAutoOpenRef.current) {
-      skipNextImageAutoOpenRef.current = false;
+    if (component.get('editable') !== false) {
+      // Prevent GrapesJS default dblclick image modal ("Select Image").
+      component.set('editable', false, { silent: true });
+    }
+
+    const toolbar = component.get('toolbar');
+    if (!isNormalizedImageToolbar(toolbar)) {
+      component.set('toolbar', getImageToolbar(component));
+    }
+  };
+
+  const openImageManagerForSelectedImage = () => {
+    const editor = editorRef.current;
+    const current =
+      (editor?.getSelected?.() as GrapesComponentModel | null) ?? selectedComponentRef.current;
+    if (!current || String(current.get?.('type') ?? '') !== 'mj-image') {
       return;
     }
 
-    setLinkDialogError('');
-    setIsTextLinkDialogOpen(false);
-    openImageLinkDialog(component);
+    normalizeImageComponentInteraction(current);
+    sectionBackgroundTargetRef.current = null;
+    setImagePickerMode('image');
+    setIsImagePickerOpen(true);
   };
 
   const openLinkDialog = (snapshot: LinkDialogSnapshot) => {
@@ -1580,7 +1656,6 @@ export function LayoutTemplateEditor({
       },
       [INHERITED_SECTION_LINK_ATTR],
     );
-    skipNextImageAutoOpenRef.current = true;
     keepComponentSelected(selectedComponent);
     refreshCanvasRef.current?.();
     closeImageLinkDialog();
@@ -1594,7 +1669,6 @@ export function LayoutTemplateEditor({
     }
 
     removeHrefFromComponent(selectedComponent);
-    skipNextImageAutoOpenRef.current = true;
     keepComponentSelected(selectedComponent);
     refreshCanvasRef.current?.();
     closeImageLinkDialog();
@@ -1896,6 +1970,7 @@ export function LayoutTemplateEditor({
 
     const type = String(cmp.get?.('type') ?? '');
     if (type === 'mj-image') {
+      normalizeImageComponentInteraction(cmp as unknown as GrapesComponentModel);
       addTraits([
         { type: 'text', name: 'href', label: 'Image Link', placeholder: 'https://example.com' },
         {
@@ -2019,6 +2094,7 @@ export function LayoutTemplateEditor({
     onDesignChangeRef.current?.(designJson);
   }, [designJson]);
 
+  // The editor instance is initialized only once per layout shell/fullHeight context.
   useEffect(() => {
     let disposed = false;
     let assetModalObserver: MutationObserver | null = null;
@@ -2373,10 +2449,11 @@ export function LayoutTemplateEditor({
       };
 
       editor.on('component:selected', (component) => {
+        const selected = component as GrapesComponentModel;
+        normalizeImageComponentInteraction(selected);
         if (!fullHeight) {
           return;
         }
-        const selected = component as GrapesComponentModel;
         ensureComponentTraits(selected);
         setSelectedComponent(selected);
         bumpSelectedComponent();
@@ -2384,17 +2461,16 @@ export function LayoutTemplateEditor({
         startInlineTextEdit(selected);
         captureCurrentRteRange();
         queueRteToolbarPosition();
-        maybeAutoOpenImageLinkDialog(selected);
       });
       editor.on('component:deselected', () => {
         const currentSelected = editor.getSelected?.() as GrapesComponentModel | null;
         if (currentSelected) {
+          normalizeImageComponentInteraction(currentSelected);
           setSelectedComponent(currentSelected);
           bumpSelectedComponent();
           startInlineTextEdit(currentSelected);
           captureCurrentRteRange();
           queueRteToolbarPosition();
-          maybeAutoOpenImageLinkDialog(currentSelected);
           return;
         }
         setSelectedComponent(null);
@@ -2419,6 +2495,7 @@ export function LayoutTemplateEditor({
       });
       editor.on('component:add', (component) => {
         const child = component as GrapesComponentModel;
+        normalizeImageComponentInteraction(child);
         const childType = String(child.get('type') ?? '');
         if (!shouldReceiveSectionLink(childType)) {
           return;
@@ -2464,6 +2541,13 @@ export function LayoutTemplateEditor({
         const cmp = component as GrapesComponentModel;
         if (selectedComponentRef.current && cmp === selectedComponentRef.current) {
           bumpSelectedComponent();
+        }
+      });
+      editor.on('load', () => {
+        const wrapper = editor.getWrapper?.();
+        const images = wrapper?.findType?.('mj-image') ?? [];
+        for (const imageComponent of images) {
+          normalizeImageComponentInteraction(imageComponent as GrapesComponentModel);
         }
       });
       ensureCanvasScroll();
@@ -2544,6 +2628,7 @@ export function LayoutTemplateEditor({
       }
       refreshCanvasRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullHeight, layoutTargets.blocks, layoutTargets.layers, layoutTargets.styles, layoutTargets.traits]);
 
   useEffect(() => {
@@ -2979,6 +3064,22 @@ export function LayoutTemplateEditor({
 
                     {isImageComponent ? (
                       <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex h-9 items-center justify-center rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-50"
+                            onClick={openImageManagerForSelectedImage}
+                          >
+                            Change image
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex h-9 items-center justify-center rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-50"
+                            onClick={() => openImageLinkDialog(selectedComponent)}
+                          >
+                            Link
+                          </button>
+                        </div>
                         <label className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Picture URL</span>
                           <input
