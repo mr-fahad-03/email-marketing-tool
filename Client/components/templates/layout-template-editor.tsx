@@ -93,6 +93,8 @@ interface GrapesEditorInstance {
   getIcon?: (key: string) => string;
   runCommand?: (id: string, options?: Record<string, unknown>) => unknown;
   on: (eventName: string, callback: (...args: unknown[]) => void) => void;
+  off: (eventName: string, callback?: (...args: unknown[]) => void) => void;
+  trigger: (eventName: string, ...args: unknown[]) => void;
   destroy: () => void;
   DomComponents?: {
     getType?: (type: string) => unknown;
