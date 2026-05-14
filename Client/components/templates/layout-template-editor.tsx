@@ -1495,7 +1495,12 @@ export function LayoutTemplateEditor({
     const editor = editorRef.current;
     const current =
       (editor?.getSelected?.() as GrapesComponentModel | null) ?? selectedComponentRef.current;
-    if (!current || String(current.get?.('type') ?? '') !== 'mj-image') {
+    if (!current) {
+      return;
+    }
+
+    const type = String(current.get?.('type') ?? '');
+    if (type !== 'mj-image' && type !== 'mj-social-element') {
       return;
     }
 
@@ -2031,8 +2036,9 @@ export function LayoutTemplateEditor({
       sectionBackgroundTargetRef.current = null;
       setImagePickerMode('image');
     } else {
+      const type = String(resolvedForImage?.get?.('type') ?? '');
       const imageComponent =
-        resolvedForImage && String(resolvedForImage.get?.('type') ?? '') === 'mj-image'
+        resolvedForImage && (type === 'mj-image' || type === 'mj-social-element')
           ? resolvedForImage
           : null;
           
@@ -2907,6 +2913,7 @@ export function LayoutTemplateEditor({
   const isImageComponent = selectedType === 'mj-image';
   const isButtonComponent = selectedType === 'mj-button';
   const isDividerComponent = selectedType === 'mj-divider';
+  const isSocialElement = selectedType === 'mj-social-element';
   const selectedTextLinkState = isTextComponent
     ? getTextLinkStateFromComponent(selectedComponent)
     : { href: '', target: DEFAULT_LINK_TARGET };
@@ -3442,7 +3449,55 @@ export function LayoutTemplateEditor({
                       </div>
                     ) : null}
 
-                    {isLinkableComponent && !isTextComponent && !isImageComponent && !isButtonComponent ? (
+                    {isSocialElement ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex h-9 items-center justify-center rounded border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-50"
+                            onClick={openImageManagerForSelectedImage}
+                          >
+                            Change icon
+                          </button>
+                        </div>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Icon URL</span>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedImageSrc}
+                            onChange={(event) => updateSelectedAttributes({ src: event.target.value.trim() })}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Add a link</span>
+                          <input
+                            type="text"
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedGenericHref}
+                            placeholder="https://example.com"
+                            onChange={(event) => updateSelectedLinkAttribute('href', event.target.value)}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Link target</span>
+                          <select
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
+                            value={selectedGenericTarget}
+                            onChange={(event) => updateSelectedLinkAttribute('target', event.target.value)}
+                          >
+                            <option value={DEFAULT_LINK_TARGET}>Same tab</option>
+                            <option value="_blank">New tab</option>
+                          </select>
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {isLinkableComponent &&
+                    !isTextComponent &&
+                    !isImageComponent &&
+                    !isButtonComponent &&
+                    !isSocialElement ? (
                       <div className="space-y-3">
                         <label className="block">
                           <span className="mb-1 block text-xs font-semibold text-slate-700">Add a link</span>
