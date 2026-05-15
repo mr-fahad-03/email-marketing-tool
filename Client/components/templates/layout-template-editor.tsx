@@ -909,7 +909,7 @@ function decodeHtmlEntities(input: string): string {
 
   const textarea = window.document.createElement('textarea');
   textarea.innerHTML = input;
-  return textarea.value;
+  return textarea.value.replace(/\u00A0/g, ' ');
 }
 
 function htmlToPlainText(input: string): string {
@@ -924,10 +924,11 @@ function plainTextToHtml(input: string): string {
   const escaped = input
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-  return escaped.replace(/\r?\n/g, '<br>');
+  const withSpaces = escaped
+    .replace(/  /g, ' &nbsp;')
+    .replace(/^ /g, '&nbsp;')
+    .replace(/ $/g, '&nbsp;');
+  return withSpaces.replace(/\r?\n/g, '<br>');
 }
 
 function pxValue(input: string): string {
@@ -1379,6 +1380,7 @@ export function LayoutTemplateEditor({
   const imageLinkDialogComponentRef = useRef<GrapesComponentModel | null>(null);
   const imageLinkDialogInputRef = useRef<HTMLInputElement | null>(null);
   const [, forceSelectedComponentRefresh] = useState(0);
+  const [activeTextEditValue, setActiveTextEditValue] = useState<string | null>(null);
 
   const shellId = useMemo(() => `mjml-shell-${Math.random().toString(36).slice(2, 10)}`, []);
   const layoutTargets = useMemo(
@@ -1847,6 +1849,7 @@ export function LayoutTemplateEditor({
 
   useEffect(() => {
     selectedComponentRef.current = selectedComponent;
+    setActiveTextEditValue(null);
   }, [selectedComponent]);
 
   const patchComponentAttributes = (
@@ -3108,9 +3111,11 @@ export function LayoutTemplateEditor({
                           <textarea
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
                             rows={4}
-                            value={selectedTextContent}
+                            value={activeTextEditValue !== null ? activeTextEditValue : selectedTextContent}
                             onChange={(event) => {
-                              const nextTextHtml = plainTextToHtml(event.target.value);
+                              const val = event.target.value;
+                              setActiveTextEditValue(val);
+                              const nextTextHtml = plainTextToHtml(val);
                               setComponentHtmlContent(selectedComponent, nextTextHtml);
                               const currentTextLinkState = getTextLinkStateFromComponent(selectedComponent);
                               if (!currentTextLinkState.href) {
@@ -3126,6 +3131,7 @@ export function LayoutTemplateEditor({
                               }
                               bumpSelectedComponent();
                             }}
+                            onBlur={() => setActiveTextEditValue(null)}
                           />
                         </label>
                         <ColorField
@@ -3404,11 +3410,14 @@ export function LayoutTemplateEditor({
                           <input
                             type="text"
                             className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm text-slate-900 outline-none focus:border-[#0b6886]"
-                            value={selectedButtonText}
+                            value={activeTextEditValue !== null ? activeTextEditValue : selectedButtonText}
                             onChange={(event) => {
-                              setComponentHtmlContent(selectedComponent, plainTextToHtml(event.target.value));
+                              const val = event.target.value;
+                              setActiveTextEditValue(val);
+                              setComponentHtmlContent(selectedComponent, plainTextToHtml(val));
                               bumpSelectedComponent();
                             }}
+                            onBlur={() => setActiveTextEditValue(null)}
                           />
                         </label>
                         <ColorField
