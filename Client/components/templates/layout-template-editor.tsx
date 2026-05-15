@@ -717,24 +717,31 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
   return '';
 }
 
-function setComponentHtmlContent(component: GrapesComponentModel | null, html: string): void {
+function setComponentHtmlContent(
+  component: GrapesComponentModel | null,
+  html: string,
+  options?: { silent?: boolean },
+): void {
   if (!component) {
     return;
   }
 
   try {
-    component.components?.(html);
-    component.set('content', '');
+    component.components?.(html, options);
+    component.set('content', '', options);
   } catch {
     try {
-      component.set('content', html);
+      component.set('content', html, options);
     } catch {
       // No-op: detached component views can throw during rapid edits.
     }
   }
 }
 
-function syncMjTextModelFromRenderedDom(component: GrapesComponentModel | null): void {
+function syncMjTextModelFromRenderedDom(
+  component: GrapesComponentModel | null,
+  options?: { silent?: boolean },
+): void {
   if (!component || String(component.get?.('type') ?? '') !== 'mj-text') {
     return;
   }
@@ -754,7 +761,7 @@ function syncMjTextModelFromRenderedDom(component: GrapesComponentModel | null):
     return;
   }
 
-  setComponentHtmlContent(component, next);
+  setComponentHtmlContent(component, next, options);
 }
 
 function areEquivalentLinks(
@@ -2366,7 +2373,9 @@ export function LayoutTemplateEditor({
 
         const onContentInput = () => {
           onSelectionUpdate();
+          syncMjTextModelFromRenderedDom(selectedComponentRef.current, { silent: true });
           bumpSelectedComponent();
+          editor.trigger('update');
         };
 
         frameDoc.addEventListener('selectionchange', onSelectionUpdate, true);
@@ -3101,9 +3110,7 @@ export function LayoutTemplateEditor({
                                   target: currentTextLinkState.target,
                                 }, { sourceHtml: nextTextHtml });
                               }
-                              keepComponentSelected(selectedComponent);
                               bumpSelectedComponent();
-                              refreshCanvasRef.current?.();
                             }}
                           />
                         </label>
@@ -3386,7 +3393,6 @@ export function LayoutTemplateEditor({
                             value={selectedButtonText}
                             onChange={(event) => {
                               setComponentHtmlContent(selectedComponent, plainTextToHtml(event.target.value));
-                              keepComponentSelected(selectedComponent);
                               bumpSelectedComponent();
                             }}
                           />
