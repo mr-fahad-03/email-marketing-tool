@@ -2375,7 +2375,14 @@ export function LayoutTemplateEditor({
           onSelectionUpdate();
           syncMjTextModelFromRenderedDom(selectedComponentRef.current, { silent: true });
           bumpSelectedComponent();
-          editor.trigger('update');
+
+          // Trigger preview sync manually instead of editor update to avoid vibration
+          if (updateTimerRef.current) {
+            clearTimeout(updateTimerRef.current);
+          }
+          updateTimerRef.current = setTimeout(() => {
+            void syncCompiledHtml();
+          }, 650);
         };
 
         frameDoc.addEventListener('selectionchange', onSelectionUpdate, true);
@@ -2470,15 +2477,16 @@ export function LayoutTemplateEditor({
         const frameWrapperEl = containerRef.current?.querySelector('.gjs-frame-wrapper') as HTMLElement | null;
 
         if (lastAppliedCanvasHeightRef.current !== roundedTargetHeight) {
-          lastAppliedCanvasHeightRef.current = roundedTargetHeight;
-          if (containerRef.current) {
-            containerRef.current.style.height = adjustedHeight;
+          const heightDiff = Math.abs(lastAppliedCanvasHeightRef.current - roundedTargetHeight);
+          if (heightDiff > 15) {
+            lastAppliedCanvasHeightRef.current = roundedTargetHeight;
+            if (containerRef.current) {
+              containerRef.current.style.height = adjustedHeight;
+            }
+            if (frameEl) {
+              frameEl.style.height = adjustedHeight;
+            }
           }
-          if (editorEl) editorEl.style.height = adjustedHeight;
-          if (editorContEl) editorContEl.style.height = adjustedHeight;
-          if (canvasEl) canvasEl.style.height = adjustedHeight;
-          if (frameWrapperEl) frameWrapperEl.style.height = adjustedHeight;
-          if (frameEl) frameEl.style.height = adjustedHeight;
         }
 
         if (frameDoc && !frameDoc.getElementById('mjml-frame-ux-fixes')) {
@@ -2597,13 +2605,19 @@ export function LayoutTemplateEditor({
         subtree: true,
       });
 
+      let canvasUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+      const debouncedEnsureCanvasScroll = () => {
+        if (canvasUpdateTimer) clearTimeout(canvasUpdateTimer);
+        canvasUpdateTimer = setTimeout(ensureCanvasScroll, 250);
+      };
+
       editor.on('load', ensureCanvasScroll);
       editor.on('load', attachFrameToolbarListeners);
       editor.on('load', injectImageManagerButton);
       editor.on('load', ensureRteToolbarInteraction);
       editor.on('modal:open', injectImageManagerButton);
       editor.on('rte:enable', ensureRteToolbarInteraction);
-      editor.on('update', ensureCanvasScroll);
+      editor.on('update', debouncedEnsureCanvasScroll);
       const startInlineTextEdit = (component: GrapesComponentModel) => {
         const type = String(component.get('type') ?? '');
         if (!supportsInlineTextEditing(type)) {
