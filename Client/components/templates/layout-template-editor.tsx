@@ -683,6 +683,14 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
     return '';
   }
 
+  const el = component.getEl?.();
+  if (el) {
+    const elementContent = el.innerHTML?.trim() ?? '';
+    if (elementContent) {
+      return extractInnerTextHtmlCandidate(elementContent);
+    }
+  }
+
   const childComponents = collectionToComponents(
     component.components?.() ?? component.get?.('components') ?? null,
   );
@@ -699,14 +707,6 @@ function getComponentEditableContent(component: GrapesComponentModel | null): st
   const rawContent = String(component.get?.('content') ?? '').trim();
   if (rawContent) {
     return extractInnerTextHtmlCandidate(rawContent);
-  }
-
-  const el = component.getEl?.();
-  if (el) {
-    const elementContent = el.innerHTML?.trim() ?? '';
-    if (elementContent) {
-      return extractInnerTextHtmlCandidate(elementContent);
-    }
   }
 
   const serialized = component.toHTML?.().trim() ?? '';
@@ -2364,15 +2364,22 @@ export function LayoutTemplateEditor({
           queueRteToolbarPosition();
         };
 
+        const onContentInput = () => {
+          onSelectionUpdate();
+          bumpSelectedComponent();
+        };
+
         frameDoc.addEventListener('selectionchange', onSelectionUpdate, true);
         frameDoc.addEventListener('mouseup', onSelectionUpdate, true);
         frameDoc.addEventListener('keyup', onSelectionUpdate, true);
+        frameDoc.addEventListener('input', onContentInput, true);
         frameWin.addEventListener('scroll', queueRteToolbarPosition, true);
 
         frameToolbarListenersCleanup = () => {
           frameDoc.removeEventListener('selectionchange', onSelectionUpdate, true);
           frameDoc.removeEventListener('mouseup', onSelectionUpdate, true);
           frameDoc.removeEventListener('keyup', onSelectionUpdate, true);
+          frameDoc.removeEventListener('input', onContentInput, true);
           frameWin.removeEventListener('scroll', queueRteToolbarPosition, true);
         };
       };
@@ -2703,6 +2710,12 @@ export function LayoutTemplateEditor({
         }
       });
       editor.on('component:update', (component) => {
+        const cmp = component as GrapesComponentModel;
+        if (selectedComponentRef.current && cmp === selectedComponentRef.current) {
+          bumpSelectedComponent();
+        }
+      });
+      editor.on('component:update:content', (component) => {
         const cmp = component as GrapesComponentModel;
         if (selectedComponentRef.current && cmp === selectedComponentRef.current) {
           bumpSelectedComponent();
@@ -3089,6 +3102,7 @@ export function LayoutTemplateEditor({
                                 }, { sourceHtml: nextTextHtml });
                               }
                               keepComponentSelected(selectedComponent);
+                              bumpSelectedComponent();
                               refreshCanvasRef.current?.();
                             }}
                           />
@@ -3373,6 +3387,7 @@ export function LayoutTemplateEditor({
                             onChange={(event) => {
                               setComponentHtmlContent(selectedComponent, plainTextToHtml(event.target.value));
                               keepComponentSelected(selectedComponent);
+                              bumpSelectedComponent();
                             }}
                           />
                         </label>
