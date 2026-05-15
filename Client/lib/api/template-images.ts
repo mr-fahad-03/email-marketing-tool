@@ -204,6 +204,21 @@ export async function deleteTemplateImageFile(id: string): Promise<void> {
   });
 }
 
+export async function moveTemplateImageFile(input: {
+  id: string;
+  folderId?: string | null;
+}): Promise<TemplateImageFile> {
+  const payload = await apiRequest<unknown, Record<string, unknown>>({
+    method: "PATCH",
+    url: `/template-images/files/${encodeURIComponent(input.id)}/move`,
+    data: {
+      folderId: input.folderId || undefined,
+    },
+  });
+
+  return normalizeFile(payload);
+}
+
 export async function deleteTemplateImageFolder(id: string): Promise<void> {
   await apiRequest<unknown>({
     method: "DELETE",

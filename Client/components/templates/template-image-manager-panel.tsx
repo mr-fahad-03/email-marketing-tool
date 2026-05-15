@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type DragEvent,
 } from "react";
 import { toast } from "sonner";
 import {
@@ -24,6 +25,7 @@ import {
   deleteTemplateImageFile,
   deleteTemplateImageFolder,
   getTemplateImageBrowser,
+  moveTemplateImageFile,
   uploadTemplateImage,
 } from "@/lib/api/template-images";
 import { HttpClientError } from "@/lib/api/errors";
@@ -115,6 +117,9 @@ export function TemplateImageManagerPanel({
   const [isDeletingFolderId, setIsDeletingFolderId] = useState<string | null>(
     null,
   );
+  const [isMovingFileId, setIsMovingFileId] = useState<string | null>(null);
+  const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
   const [browser, setBrowser] = useState<TemplateImageBrowserResult | null>(
     null,
@@ -271,6 +276,69 @@ export function TemplateImageManagerPanel({
     }
   };
 
+  const handleMoveFileToFolder = async (
+    file: TemplateImageFile,
+    destinationFolderId: string,
+  ) => {
+    if (file.folderId === destinationFolderId) {
+      toast.error("Image is already in this folder.");
+      return;
+    }
+
+    setIsMovingFileId(file.id);
+    try {
+      await moveTemplateImageFile({
+        id: file.id,
+        folderId: destinationFolderId,
+      });
+      toast.success("Image moved.");
+      await loadBrowser(currentFolderId, searchQuery);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsMovingFileId(null);
+      setDraggingFileId(null);
+      setDragOverFolderId(null);
+    }
+  };
+
+  const handleFileDragStart = (
+    event: DragEvent<HTMLDivElement>,
+    file: TemplateImageFile,
+  ) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", file.id);
+    setDraggingFileId(file.id);
+  };
+
+  const handleFolderDragOver = (
+    event: DragEvent<HTMLDivElement>,
+    folderId: string,
+  ) => {
+    if (!draggingFileId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverFolderId(folderId);
+  };
+
+  const handleFolderDrop = (
+    event: DragEvent<HTMLDivElement>,
+    destinationFolderId: string,
+  ) => {
+    event.preventDefault();
+    const draggedFileId = event.dataTransfer.getData("text/plain");
+    const draggedFile = files.find((item) => item.id === draggedFileId);
+    if (!draggedFile) {
+      setDragOverFolderId(null);
+      return;
+    }
+
+    void handleMoveFileToFolder(draggedFile, destinationFolderId);
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -383,7 +451,18 @@ export function TemplateImageManagerPanel({
               {folders.map((folder) => (
                 <div
                   key={folder.id}
-                  className="rounded-lg border border-zinc-200 bg-zinc-50 p-3"
+                  className={`rounded-lg border p-3 transition-colors ${
+                    dragOverFolderId === folder.id
+                      ? "border-emerald-400 bg-emerald-50"
+                      : "border-zinc-200 bg-zinc-50"
+                  }`}
+                  onDragOver={(event) => handleFolderDragOver(event, folder.id)}
+                  onDragLeave={() =>
+                    setDragOverFolderId((activeFolderId) =>
+                      activeFolderId === folder.id ? null : activeFolderId,
+                    )
+                  }
+                  onDrop={(event) => handleFolderDrop(event, folder.id)}
                 >
                   <button
                     type="button"
@@ -423,7 +502,15 @@ export function TemplateImageManagerPanel({
               {files.map((file) => (
                 <div
                   key={file.id}
-                  className="rounded-lg border border-zinc-200 bg-white p-2"
+                  className={`rounded-lg border border-zinc-200 bg-white p-2 ${
+                    draggingFileId === file.id ? "opacity-60" : ""
+                  }`}
+                  draggable={isMovingFileId !== file.id}
+                  onDragStart={(event) => handleFileDragStart(event, file)}
+                  onDragEnd={() => {
+                    setDraggingFileId(null);
+                    setDragOverFolderId(null);
+                  }}
                 >
                   <div className="mb-2 h-28 overflow-hidden rounded border border-zinc-200 bg-zinc-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -447,6 +534,7 @@ export function TemplateImageManagerPanel({
                         size="sm"
                         className="h-8 px-2 text-xs"
                         onClick={() => void handleCopyUrl(file.publicUrl)}
+                        disabled={isMovingFileId === file.id}
                       >
                         <Copy className="h-3.5 w-3.5" />
                         Copy
@@ -457,7 +545,9 @@ export function TemplateImageManagerPanel({
                         size="sm"
                         className="h-8 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                         onClick={() => void handleDeleteFile(file)}
-                        disabled={isDeletingFileId === file.id}
+                        disabled={
+                          isDeletingFileId === file.id || isMovingFileId === file.id
+                        }
                       >
                         {isDeletingFileId === file.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -469,15 +559,35 @@ export function TemplateImageManagerPanel({
                     </div>
                   ) : null}
                   {showSelectAction ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="mt-1 h-8 w-full text-xs"
-                      onClick={() => onSelectImage?.(file.publicUrl, file)}
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" />
-                      Use Image
-                    </Button>
+                    <div className="mt-1 flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 flex-1 text-xs"
+                        onClick={() => onSelectImage?.(file.publicUrl, file)}
+                        disabled={isMovingFileId === file.id}
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        Use Image
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                        onClick={() => void handleDeleteFile(file)}
+                        disabled={
+                          isDeletingFileId === file.id || isMovingFileId === file.id
+                        }
+                        aria-label={`Delete ${file.originalName}`}
+                      >
+                        {isDeletingFileId === file.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
               ))}

@@ -1,4 +1,4 @@
-import { mkdir, rm, unlink, writeFile } from 'fs/promises';
+import { mkdir, rename, rm, unlink, writeFile } from 'fs/promises';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -9,6 +9,7 @@ import { AuthUser } from '../../common/types/auth-user.type';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { CreateTemplateImageFolderDto } from './dto/create-template-image-folder.dto';
 import { ListTemplateImagesDto } from './dto/list-template-images.dto';
+import { MoveTemplateImageFileDto } from './dto/move-template-image-file.dto';
 import { UploadTemplateImageDto } from './dto/upload-template-image.dto';
 import { TemplateImageFile, TemplateImageFileDocument } from './schemas/template-image-file.schema';
 import {
@@ -298,6 +299,69 @@ export class TemplateImagesService {
     await rm(absoluteFolderPath, { recursive: true, force: true });
 
     return { deleted: true, id: folder.id };
+  }
+
+  async moveFile(
+    id: string,
+    dto: MoveTemplateImageFileDto,
+    authUser: AuthUser,
+  ): Promise<TemplateImageFileResponse> {
+    const workspaceId = await this.resolveWorkspaceId(authUser);
+    const [file, destinationFolder] = await Promise.all([
+      this.templateImageFileModel
+        .findOne({
+          _id: this.toObjectId(id),
+          workspaceId: this.toObjectId(workspaceId),
+        })
+        .exec(),
+      this.resolveOwnedFolder(dto.folderId, workspaceId, {
+        allowRoot: true,
+        notFoundCode: 'TEMPLATE_IMAGE_FOLDER_NOT_FOUND',
+      }),
+    ]);
+
+    if (!file) {
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        'TEMPLATE_IMAGE_FILE_NOT_FOUND',
+        'Image file not found',
+      );
+    }
+
+    const currentFolderId = file.folderId ? file.folderId.toString() : null;
+    const nextFolderId = destinationFolder?._id ? destinationFolder._id.toString() : null;
+    if (currentFolderId === nextFolderId) {
+      return this.toFileResponse(file);
+    }
+
+    const settings = this.getSettings();
+    const sourceAbsolutePath = join(settings.uploadDir, ...file.relativePath.split('/'));
+
+    const destinationFolderSegment = destinationFolder?.id ?? 'root';
+    const destinationRelativeDir = pathPosix.join(workspaceId, destinationFolderSegment);
+    const destinationRelativePath = pathPosix.join(destinationRelativeDir, file.storedName);
+    const destinationAbsoluteDir = join(settings.uploadDir, ...destinationRelativeDir.split('/'));
+    const destinationAbsolutePath = join(settings.uploadDir, ...destinationRelativePath.split('/'));
+
+    await mkdir(destinationAbsoluteDir, { recursive: true });
+
+    try {
+      await rename(sourceAbsolutePath, destinationAbsolutePath);
+    } catch {
+      throw new AppException(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'TEMPLATE_IMAGE_FILE_MOVE_FAILED',
+        'Could not move image file',
+      );
+    }
+
+    file.folderId = destinationFolder?._id ?? null;
+    file.relativePath = destinationRelativePath;
+    file.publicPath = `${settings.publicPath}/${destinationRelativePath}`.replace(/\/+/g, '/');
+
+    await file.save();
+
+    return this.toFileResponse(file);
   }
 
   private async buildBreadcrumbs(

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UploadedFile,
@@ -17,6 +18,7 @@ import { AuthUser } from '../../common/types/auth-user.type';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateTemplateImageFolderDto } from './dto/create-template-image-folder.dto';
 import { ListTemplateImagesDto } from './dto/list-template-images.dto';
+import { MoveTemplateImageFileDto } from './dto/move-template-image-file.dto';
 import { UploadTemplateImageDto } from './dto/upload-template-image.dto';
 import { TemplateImagesService } from './template-images.service';
 import {
@@ -70,5 +72,14 @@ export class TemplateImagesController {
     @CurrentUser() authUser: AuthUser,
   ): Promise<{ deleted: true; id: string }> {
     return this.templateImagesService.removeFile(id, authUser);
+  }
+
+  @Patch('files/:id/move')
+  moveFile(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: MoveTemplateImageFileDto,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<TemplateImageFileResponse> {
+    return this.templateImagesService.moveFile(id, dto, authUser);
   }
 }
