@@ -34,12 +34,32 @@ import type {
   TemplateImageFile,
 } from "@/lib/types/template-image";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 interface TemplateImageManagerPanelProps {
   showSelectAction?: boolean;
   onSelectImage?: (imageUrl: string, file: TemplateImageFile) => void;
 }
+
+type PendingDeleteTarget =
+  | {
+      type: "folder";
+      id: string;
+      name: string;
+    }
+  | {
+      type: "file";
+      id: string;
+      name: string;
+    };
 
 function encodePublicImageUrlForDisplay(url: string): string {
   const trimmed = url.trim();
@@ -120,6 +140,9 @@ export function TemplateImageManagerPanel({
   const [isMovingFileId, setIsMovingFileId] = useState<string | null>(null);
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [pendingDeleteTarget, setPendingDeleteTarget] =
+    useState<PendingDeleteTarget | null>(null);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   const [browser, setBrowser] = useState<TemplateImageBrowserResult | null>(
     null,
@@ -229,41 +252,47 @@ export function TemplateImageManagerPanel({
     }
   };
 
-  const handleDeleteFolder = async (folderId: string, folderName: string) => {
-    const confirmed = window.confirm(
-      `Delete folder "${folderName}"? It must be empty.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    setIsDeletingFolderId(folderId);
-    try {
-      await deleteTemplateImageFolder(folderId);
-      toast.success("Folder deleted.");
-      await loadBrowser(currentFolderId, searchQuery);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setIsDeletingFolderId(null);
-    }
+  const handleDeleteFolder = (folderId: string, folderName: string) => {
+    setPendingDeleteTarget({
+      type: "folder",
+      id: folderId,
+      name: folderName,
+    });
   };
 
-  const handleDeleteFile = async (file: TemplateImageFile) => {
-    const confirmed = window.confirm(`Delete image "${file.originalName}"?`);
-    if (!confirmed) {
+  const handleDeleteFile = (file: TemplateImageFile) => {
+    setPendingDeleteTarget({
+      type: "file",
+      id: file.id,
+      name: file.originalName,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteTarget) {
       return;
     }
 
-    setIsDeletingFileId(file.id);
+    setIsConfirmingDelete(true);
     try {
-      await deleteTemplateImageFile(file.id);
-      toast.success("Image deleted.");
+      if (pendingDeleteTarget.type === "folder") {
+        setIsDeletingFolderId(pendingDeleteTarget.id);
+        await deleteTemplateImageFolder(pendingDeleteTarget.id);
+        toast.success("Folder deleted.");
+      } else {
+        setIsDeletingFileId(pendingDeleteTarget.id);
+        await deleteTemplateImageFile(pendingDeleteTarget.id);
+        toast.success("Image deleted.");
+      }
+
       await loadBrowser(currentFolderId, searchQuery);
     } catch (error: unknown) {
       toast.error(getErrorMessage(error));
     } finally {
       setIsDeletingFileId(null);
+      setIsDeletingFolderId(null);
+      setPendingDeleteTarget(null);
+      setIsConfirmingDelete(false);
     }
   };
 
@@ -484,9 +513,7 @@ export function TemplateImageManagerPanel({
                     variant="ghost"
                     size="sm"
                     className="mt-2 w-full text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                    onClick={() =>
-                      void handleDeleteFolder(folder.id, folder.name)
-                    }
+                    onClick={() => handleDeleteFolder(folder.id, folder.name)}
                     disabled={isDeletingFolderId === folder.id}
                   >
                     {isDeletingFolderId === folder.id ? (
@@ -544,7 +571,7 @@ export function TemplateImageManagerPanel({
                         variant="ghost"
                         size="sm"
                         className="h-8 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                        onClick={() => void handleDeleteFile(file)}
+                        onClick={() => handleDeleteFile(file)}
                         disabled={
                           isDeletingFileId === file.id || isMovingFileId === file.id
                         }
@@ -575,7 +602,7 @@ export function TemplateImageManagerPanel({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 shrink-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                        onClick={() => void handleDeleteFile(file)}
+                        onClick={() => handleDeleteFile(file)}
                         disabled={
                           isDeletingFileId === file.id || isMovingFileId === file.id
                         }
@@ -601,6 +628,56 @@ export function TemplateImageManagerPanel({
           </>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(pendingDeleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isConfirmingDelete) {
+            setPendingDeleteTarget(null);
+          }
+        }}
+      >
+        <DialogContent
+          showClose={false}
+          overlayClassName="z-[11000] bg-black/40"
+          className="z-[11010] max-w-md border-zinc-200 bg-white p-6 text-zinc-900 shadow-xl"
+          onPointerDownOutside={(event) => {
+            if (isConfirmingDelete) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-lg font-semibold text-zinc-900">
+              Confirm Delete
+            </DialogTitle>
+            <DialogDescription className="text-sm text-zinc-600">
+              {pendingDeleteTarget?.type === "folder"
+                ? `Delete folder "${pendingDeleteTarget.name}"? It must be empty.`
+                : `Delete image "${pendingDeleteTarget?.name ?? ""}"?`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex-row justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingDeleteTarget(null)}
+              disabled={isConfirmingDelete}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleConfirmDelete()}
+              disabled={isConfirmingDelete}
+            >
+              {isConfirmingDelete ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
