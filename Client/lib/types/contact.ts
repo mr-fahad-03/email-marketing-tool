@@ -53,11 +53,28 @@ export interface ContactFilters {
   limit?: number;
 }
 
+export interface ContactsImportInvalidRow {
+  row: number;
+  reason: string;
+}
+
+export interface ContactsImportSkippedRow {
+  row: number;
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  reason: string;
+}
+
 export interface ContactsImportResult {
   created: number;
   skipped: number;
   invalid: number;
+  total: number;
   message?: string;
+  invalidRows?: ContactsImportInvalidRow[];
+  skippedRows?: ContactsImportSkippedRow[];
 }
 
 export interface ContactCategorySummaryItem {

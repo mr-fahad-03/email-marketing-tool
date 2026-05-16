@@ -1,28 +1,37 @@
 'use client';
 
-import { Download, Upload } from 'lucide-react';
+import { Download, Eye, Loader2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { parseCsvForPreview } from '@/lib/utils/csv-preview-parser';
+import type { CsvPreviewResult } from '@/lib/utils/csv-preview-parser';
 
 interface CsvImportCardProps {
-  isImporting?: boolean;
-  onImport: (file: File) => Promise<void>;
+  /** Called once the CSV is parsed. Parent handles navigation to the preview page. */
+  onPreview: (file: File, result: CsvPreviewResult) => void;
 }
 
-export function CsvImportCard({ isImporting = false, onImport }: CsvImportCardProps) {
+export function CsvImportCard({ onPreview }: CsvImportCardProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
 
-  const handleImport = async () => {
-    if (!selectedFile) {
-      return;
-    }
+  const handlePreviewClick = async () => {
+    if (!selectedFile) return;
 
-    await onImport(selectedFile);
-    setSelectedFile(null);
-    if (inputRef.current) {
-      inputRef.current.value = '';
+    setIsParsing(true);
+    try {
+      const result = await parseCsvForPreview(selectedFile);
+      onPreview(selectedFile, result);
+
+      // Reset UI — the parent will navigate away
+      setSelectedFile(null);
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+    } finally {
+      setIsParsing(false);
     }
   };
 
@@ -51,12 +60,21 @@ export function CsvImportCard({ isImporting = false, onImport }: CsvImportCardPr
         </Button>
         <Button
           type="button"
-          className="sm:w-auto"
-          disabled={!selectedFile || isImporting}
-          onClick={() => void handleImport()}
+          className="sm:w-auto gap-2 bg-blue-600 hover:bg-blue-500 text-white"
+          disabled={!selectedFile || isParsing}
+          onClick={() => void handlePreviewClick()}
         >
-          <Upload className="mr-2 h-4 w-4" />
-          {isImporting ? 'Importing...' : 'Import CSV'}
+          {isParsing ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Analysing…
+            </>
+          ) : (
+            <>
+              <Eye className="h-4 w-4" />
+              Preview Import
+            </>
+          )}
         </Button>
       </CardContent>
       {selectedFile && (
@@ -67,4 +85,3 @@ export function CsvImportCard({ isImporting = false, onImport }: CsvImportCardPr
     </Card>
   );
 }
-

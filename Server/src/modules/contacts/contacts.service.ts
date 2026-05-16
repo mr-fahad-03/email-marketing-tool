@@ -1,4 +1,4 @@
-﻿import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app.exception';
@@ -606,6 +606,14 @@ export class ContactsService {
     let skipped = 0;
     let invalid = 0;
     const invalidRows: Array<{ row: number; reason: string }> = [];
+    const skippedRows: Array<{
+      row: number;
+      name: string;
+      email: string;
+      phone: string;
+      company: string;
+      reason: string;
+    }> = [];
 
     for (const row of parsed.rows) {
       try {
@@ -614,10 +622,34 @@ export class ContactsService {
           created += 1;
         } else {
           skipped += 1;
+          skippedRows.push({
+            row: row.rowNumber,
+            name: this.cleanString(row.fullName) ||
+              [row.firstName, row.lastName].filter(Boolean).join(' ').trim() ||
+              this.cleanString(row.email) ||
+              this.cleanString(row.phone) ||
+              `Row ${row.rowNumber}`,
+            email: row.email ?? '',
+            phone: row.phone ?? '',
+            company: row.company ?? '',
+            reason: 'Already exists in system (duplicate)',
+          });
         }
       } catch (error) {
         if (error instanceof AppException && this.isDuplicateContactException(error)) {
           skipped += 1;
+          skippedRows.push({
+            row: row.rowNumber,
+            name: this.cleanString(row.fullName) ||
+              [row.firstName, row.lastName].filter(Boolean).join(' ').trim() ||
+              this.cleanString(row.email) ||
+              this.cleanString(row.phone) ||
+              `Row ${row.rowNumber}`,
+            email: row.email ?? '',
+            phone: row.phone ?? '',
+            company: row.company ?? '',
+            reason: 'Already exists in system (duplicate)',
+          });
           continue;
         }
 
@@ -635,6 +667,7 @@ export class ContactsService {
       invalid,
       total: parsed.total,
       invalidRows,
+      skippedRows,
     };
   }
 

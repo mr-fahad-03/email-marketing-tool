@@ -337,15 +337,52 @@ export async function importContacts(file: File): Promise<ContactsImportResult> 
       created: 0,
       skipped: 0,
       invalid: 0,
+      total: 0,
       message: 'Import completed.',
     };
   }
+
+  const rawInvalidRows = Array.isArray(record.invalidRows) ? record.invalidRows : [];
+  const invalidRows = rawInvalidRows
+    .map((item: unknown) => {
+      const entry = getRecord(item);
+      if (!entry) return null;
+      const row = getNumber(entry, ['row']);
+      const reason = getString(entry, ['reason']);
+      if (row === undefined) return null;
+      return { row, reason: reason ?? 'Unknown error' };
+    })
+    .filter((item): item is { row: number; reason: string } => item !== null);
+
+  const rawSkippedRows = Array.isArray(record.skippedRows) ? record.skippedRows : [];
+  const skippedRows = rawSkippedRows
+    .map((item: unknown) => {
+      const entry = getRecord(item);
+      if (!entry) return null;
+      const row = getNumber(entry, ['row']);
+      if (row === undefined) return null;
+      return {
+        row,
+        name: getString(entry, ['name']) ?? '',
+        email: getString(entry, ['email']) ?? '',
+        phone: getString(entry, ['phone']) ?? '',
+        company: getString(entry, ['company']) ?? '',
+        reason: getString(entry, ['reason']) ?? 'Already exists in system (duplicate)',
+      };
+    })
+    .filter(
+      (item): item is { row: number; name: string; email: string; phone: string; company: string; reason: string } =>
+        item !== null,
+    );
 
   return {
     created: getNumber(record, ['created']) ?? 0,
     skipped: getNumber(record, ['skipped']) ?? 0,
     invalid: getNumber(record, ['invalid']) ?? 0,
+    total: getNumber(record, ['total']) ?? 0,
     message: getString(record, ['message']) ?? 'Import completed.',
+    invalidRows,
+    skippedRows,
   };
 }
 

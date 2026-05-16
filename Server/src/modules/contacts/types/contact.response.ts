@@ -1,4 +1,4 @@
-﻿import {
+import {
   ContactEmailStatus,
   ContactSource,
   ContactSubscriptionStatus,
@@ -50,6 +50,14 @@ export interface ContactImportResultResponse {
   };
   invalidRows?: Array<{
     row: number;
+    reason: string;
+  }>;
+  skippedRows?: Array<{
+    row: number;
+    name: string;
+    email: string;
+    phone: string;
+    company: string;
     reason: string;
   }>;
 }

@@ -2,7 +2,9 @@
 
 import { Columns3, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { setPendingImport } from '@/lib/utils/csv-import-store';
 import { ContactFormDialog } from '@/components/contacts/contact-form-dialog';
 import {
   ContactsFilters,
@@ -44,7 +46,6 @@ import {
   deleteContact,
   getContactCategorySummary,
   getContacts,
-  importContacts,
   updateContact,
 } from '@/lib/api/contacts';
 import type {
@@ -122,9 +123,9 @@ function getErrorMessage(error: unknown): string {
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [pagination, setPagination] = useState<ContactsPagination>(DEFAULT_PAGINATION);
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -412,20 +413,9 @@ export default function ContactsPage() {
     }
   };
 
-  const handleImport = async (file: File) => {
-    setIsImporting(true);
-
-    try {
-      const result = await importContacts(file);
-      toast.success(
-        `${result.message ?? 'Import complete.'} Created: ${result.created}, Skipped: ${result.skipped}, Invalid: ${result.invalid}`,
-      );
-      await Promise.all([loadContacts(), loadCategorySummary()]);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setIsImporting(false);
-    }
+  const handlePreview = (file: File, result: import('@/lib/utils/csv-preview-parser').CsvPreviewResult) => {
+    setPendingImport(file, result);
+    router.push('/dashboard/contacts/import');
   };
 
   const handleToggleSelectAll = (checked: boolean) => {
@@ -641,7 +631,7 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      <CsvImportCard isImporting={isImporting} onImport={handleImport} />
+      <CsvImportCard onPreview={handlePreview} />
 
       <Card className="border-zinc-800 bg-zinc-900/60 text-zinc-100">
         <CardHeader className="space-y-4">
