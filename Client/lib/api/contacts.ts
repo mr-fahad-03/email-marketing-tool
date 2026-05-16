@@ -460,3 +460,13 @@ export async function bulkAddLabelToContacts(
     modified: getNumber(record, ['modified']) ?? 0,
   };
 }
+
+export async function checkContactsDuplicates(emails: string[]): Promise<string[]> {
+  const payload = await apiRequest<unknown, { emails: string[] }>({
+    method: 'POST',
+    url: '/contacts/check-duplicates',
+    data: { emails },
+  });
+
+  return Array.isArray(payload) ? (payload as string[]) : [];
+}

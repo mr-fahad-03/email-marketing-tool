@@ -28,6 +28,7 @@ interface StatCard {
   bgColor: string;
   borderColor: string;
   activeBg: string;
+  badgeText?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,7 @@ const STATUS_META: Record<PreviewRowStatus, { label: string; color: string }> = 
   valid:          { label: 'Valid',          color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   missing_fields: { label: 'Missing Fields', color: 'text-amber-700 bg-amber-50 border-amber-200' },
   skipped:        { label: 'Skipped',        color: 'text-zinc-600 bg-zinc-50 border-zinc-200' },
+  duplicate:      { label: 'Skipped (Duplicates)', color: 'text-blue-700 bg-blue-50 border-blue-200' },
   rejected:       { label: 'Rejected',       color: 'text-rose-700 bg-rose-50 border-rose-200' },
 };
 
@@ -127,6 +129,17 @@ export function CsvPreviewDashboard({
       activeBg: 'bg-amber-100 border-amber-400',
     },
     {
+      id: 'duplicate',
+      label: 'Skipped (Duplicates)',
+      count: result.counts.duplicate,
+      icon: <SkipForward className="h-5 w-5" />,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+      borderColor: 'border-blue-200',
+      activeBg: 'bg-blue-100 border-blue-400',
+      badgeText: result.counts.duplicate > 0 ? 'View Details' : undefined,
+    },
+    {
       id: 'rejected',
       label: 'Rejected',
       count: result.counts.rejected,
@@ -135,6 +148,7 @@ export function CsvPreviewDashboard({
       bgColor: 'bg-rose-50',
       borderColor: 'border-rose-200',
       activeBg: 'bg-rose-100 border-rose-400',
+      badgeText: result.counts.rejected > 0 ? 'View Details' : undefined,
     },
     {
       id: 'ready_to_import',
@@ -207,6 +221,12 @@ export function CsvPreviewDashboard({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {result.counts.duplicate > 0 && (
+            <span className="flex items-center gap-1.5 rounded-full bg-blue-100 px-3.5 py-1.5 text-xs font-black text-blue-700 shadow-sm">
+              <SkipForward className="h-3.5 w-3.5" />
+              {result.counts.duplicate} DUPLICATES
+            </span>
+          )}
           {result.counts.rejected > 0 && (
             <span className="flex items-center gap-1.5 rounded-full bg-rose-100 px-3.5 py-1.5 text-xs font-black text-rose-700 shadow-sm">
               <AlertTriangle className="h-3.5 w-3.5" />
@@ -223,7 +243,7 @@ export function CsvPreviewDashboard({
       </div>
 
       {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {cards.map((card) => {
           const isActive = activeFilter === card.id;
           return (
@@ -249,6 +269,11 @@ export function CsvPreviewDashboard({
                   {card.label}
                 </p>
               </div>
+              {card.badgeText && (
+                <span className={`mt-auto self-start rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${card.borderColor} ${card.color} bg-white/50 backdrop-blur-sm`}>
+                  {card.badgeText}
+                </span>
+              )}
             </button>
           );
         })}
@@ -389,8 +414,9 @@ export function CsvPreviewDashboard({
           </p>
           <p className="mt-0.5 text-xs font-bold text-zinc-400 uppercase tracking-widest">
             {result.counts.skipped > 0 && `${result.counts.skipped} empty rows skipped · `}
+            {result.counts.duplicate > 0 && `${result.counts.duplicate} duplicate rows skipped · `}
             {result.counts.rejected > 0 && `${result.counts.rejected} rejected rows skipped`}
-            {result.counts.skipped === 0 && result.counts.rejected === 0 && 'All detected rows will be imported.'}
+            {result.counts.skipped === 0 && result.counts.duplicate === 0 && result.counts.rejected === 0 && 'All detected rows will be imported.'}
           </p>
         </div>
         <div className="flex gap-4">

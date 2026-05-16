@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Delete,
@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BulkDeleteContactsDto } from './dto/bulk-delete-contacts.dto';
 import { BulkCategoryUpdateDto } from './dto/bulk-category-update.dto';
 import { BulkTagUpdateDto } from './dto/bulk-tag-update.dto';
+import { CheckDuplicatesDto } from './dto/check-duplicates.dto';
 import { CreateContactCategoryDto } from './dto/create-contact-category.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { ImportContactsDto } from './dto/import-contacts.dto';
@@ -36,6 +37,14 @@ import {
 @UseGuards(JwtAuthGuard)
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
+
+  @Post('check-duplicates')
+  checkDuplicates(
+    @Body() dto: CheckDuplicatesDto,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<string[]> {
+    return this.contactsService.checkDuplicates(dto, authUser);
+  }
 
   @Post()
   create(

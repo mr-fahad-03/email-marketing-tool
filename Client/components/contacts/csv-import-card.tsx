@@ -4,8 +4,9 @@ import { Download, Eye, Loader2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { parseCsvForPreview } from '@/lib/utils/csv-preview-parser';
+import { parseCsvForPreview, extractEmailsFromCsv } from '@/lib/utils/csv-preview-parser';
 import type { CsvPreviewResult } from '@/lib/utils/csv-preview-parser';
+import { checkContactsDuplicates } from '@/lib/api/contacts';
 
 interface CsvImportCardProps {
   /** Called once the CSV is parsed. Parent handles navigation to the preview page. */
@@ -22,7 +23,12 @@ export function CsvImportCard({ onPreview }: CsvImportCardProps) {
 
     setIsParsing(true);
     try {
-      const result = await parseCsvForPreview(selectedFile);
+      // 1. Extract emails and check duplicates on server
+      const emailsInFile = await extractEmailsFromCsv(selectedFile);
+      const serverDuplicates = await checkContactsDuplicates(emailsInFile);
+
+      // 2. Parse the CSV with the knowledge of which ones already exist
+      const result = await parseCsvForPreview(selectedFile, serverDuplicates);
       onPreview(selectedFile, result);
 
       // Reset UI — the parent will navigate away

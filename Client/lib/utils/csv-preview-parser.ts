@@ -8,6 +8,7 @@ export type PreviewRowStatus =
   | 'valid'          // Has Name and Email + all common optional fields
   | 'missing_fields' // Has Name and Email but missing some optional fields
   | 'skipped'        // All key fields blank (genuinely empty row)
+  | 'duplicate'      // Email already seen in this file
   | 'rejected';      // Missing Name or Email (mandatory fields)
 
 export interface ParsedPreviewRow {
@@ -30,6 +31,7 @@ export interface CsvPreviewResult {
     valid: number;
     missing_fields: number;
     skipped: number;
+    duplicate: number;
     rejected: number;
   };
 }
@@ -116,12 +118,15 @@ function tokenizeCsv(text: string): string[][] {
 // ---------------------------------------------------------------------------
 const NAME_KEYS = [
   'fullname', 'full_name', 'contact name', 'contactname', 'name',
-  'firstname', 'first_name', 'lastname', 'last_name',
+  'firstname', 'first_name', 'lastname', 'last_name', 'first', 'last'
 ];
-const EMAIL_KEYS = ['email'];
-const PHONE_KEYS = ['mobile', 'mobile number', 'telephone', 'phone', 'phone number', 'additional number', 'additionalnumber'];
-const COMPANY_KEYS = ['company'];
-const CATEGORY_KEYS = ['category', 'categories'];
+const EMAIL_KEYS = ['email', 'email address', 'email_address', 'e-mail', 'mail', 'emailaddress'];
+const PHONE_KEYS = [
+  'mobile', 'mobile number', 'mobile_number', 'telephone', 'phone', 'phone number', 'phone_number', 
+  'additional number', 'additional_number', 'additionalnumber', 'tel', 'cell'
+];
+const COMPANY_KEYS = ['company', 'organization', 'org', 'business'];
+const CATEGORY_KEYS = ['category', 'categories', 'group', 'groups', 'type'];
 
 function resolveValue(record: Record<string, string>, keys: string[]): string {
   for (const key of keys) {
@@ -141,6 +146,8 @@ function resolveValue(record: Record<string, string>, keys: string[]): string {
 function classifyRow(
   rowNumber: number,
   record: Record<string, string>,
+  isDuplicate: boolean = false,
+  isServerDuplicate: boolean = false,
 ): ParsedPreviewRow {
   const name = resolveValue(record, NAME_KEYS);
   const email = resolveValue(record, EMAIL_KEYS);
@@ -165,6 +172,12 @@ function classifyRow(
   } else if (!hasName) {
     status = 'rejected';
     reason = 'Name is required — contacts must have a name';
+  } else if (isDuplicate) {
+    status = 'duplicate';
+    reason = 'Duplicate email found in this file';
+  } else if (isServerDuplicate) {
+    status = 'duplicate';
+    reason = 'Contact already exists in your workspace';
   } else {
     // Both Name and Email are present
     const isMissingOptional = !phone || !company || !category;
@@ -193,7 +206,10 @@ function classifyRow(
 // ---------------------------------------------------------------------------
 // Main parse function
 // ---------------------------------------------------------------------------
-export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> {
+export async function parseCsvForPreview(
+  file: File,
+  serverExistingEmails: string[] = [],
+): Promise<CsvPreviewResult> {
   const text = await file.text();
   const allRows = tokenizeCsv(text);
 
@@ -201,7 +217,7 @@ export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> 
     return {
       rows: [],
       total: 0,
-      counts: { valid: 0, missing_fields: 0, skipped: 0, rejected: 0 },
+    counts: { valid: 0, missing_fields: 0, skipped: 0, duplicate: 0, rejected: 0 },
     };
   }
 
@@ -210,7 +226,9 @@ export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> 
   const dataRows = allRows.slice(1);
 
   const parsedRows: ParsedPreviewRow[] = [];
-  const counts = { valid: 0, missing_fields: 0, skipped: 0, rejected: 0 };
+  const counts = { valid: 0, missing_fields: 0, skipped: 0, duplicate: 0, rejected: 0 };
+  const seenEmails = new Set<string>();
+  const serverEmailsSet = new Set(serverExistingEmails.map((e) => e.toLowerCase()));
 
   dataRows.forEach((cells, index) => {
     // Build record object keyed by lowercase header
@@ -219,7 +237,15 @@ export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> 
       record[header] = cells[col]?.trim() ?? '';
     });
 
-    const row = classifyRow(index + 2, record); // rowNumber starts at 2 (1 = header)
+    const email = resolveValue(record, EMAIL_KEYS).toLowerCase();
+    const isDuplicate = email ? seenEmails.has(email) : false;
+    const isServerDuplicate = email ? serverEmailsSet.has(email) : false;
+    
+    if (email && !isDuplicate) {
+      seenEmails.add(email);
+    }
+
+    const row = classifyRow(index + 2, record, isDuplicate, isServerDuplicate); // rowNumber starts at 2 (1 = header)
     parsedRows.push(row);
     counts[row.status] += 1;
   });
@@ -229,4 +255,29 @@ export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> 
     total: parsedRows.length,
     counts,
   };
+}
+
+/**
+ * Quick pass to extract all emails from a CSV for server-side duplicate checking.
+ */
+export async function extractEmailsFromCsv(file: File): Promise<string[]> {
+  const text = await file.text();
+  const allRows = tokenizeCsv(text);
+
+  if (allRows.length < 2) return [];
+
+  const headers = allRows[0].map((h) => h.toLowerCase().trim());
+  const dataRows = allRows.slice(1);
+  const emails: string[] = [];
+
+  dataRows.forEach((cells) => {
+    const record: Record<string, string> = {};
+    headers.forEach((header, col) => {
+      record[header] = cells[col]?.trim() ?? '';
+    });
+    const email = resolveValue(record, EMAIL_KEYS);
+    if (email) emails.push(email);
+  });
+
+  return Array.from(new Set(emails));
 }

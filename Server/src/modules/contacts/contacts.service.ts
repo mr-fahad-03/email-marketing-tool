@@ -13,6 +13,7 @@ import {
 import { BulkDeleteContactsDto } from './dto/bulk-delete-contacts.dto';
 import { BulkCategoryUpdateDto } from './dto/bulk-category-update.dto';
 import { BulkTagUpdateDto } from './dto/bulk-tag-update.dto';
+import { CheckDuplicatesDto } from './dto/check-duplicates.dto';
 import { CreateContactCategoryDto } from './dto/create-contact-category.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { ImportContactsDto } from './dto/import-contacts.dto';
@@ -56,6 +57,26 @@ export class ContactsService {
     private readonly contactsImportService: ContactsImportService,
     private readonly contactsImportJobService: ContactsImportJobService,
   ) {}
+
+  async checkDuplicates(dto: CheckDuplicatesDto, authUser: AuthUser): Promise<string[]> {
+    const workspaceId = await this.resolveWorkspaceId(authUser);
+    const normalizedEmails = dto.emails
+      .map((e) => (e || '').toLowerCase().trim())
+      .filter(Boolean);
+
+    if (normalizedEmails.length === 0) return [];
+
+    const existing = await this.contactModel
+      .find({
+        workspaceId: this.toObjectId(workspaceId),
+        emailNormalized: { $in: normalizedEmails },
+      })
+      .select('emailNormalized')
+      .lean()
+      .exec();
+
+    return existing.map((c) => c.emailNormalized);
+  }
 
   async create(dto: CreateContactDto, authUser: AuthUser): Promise<ContactResponse> {
     const workspaceId = await this.resolveWorkspaceId(authUser);
