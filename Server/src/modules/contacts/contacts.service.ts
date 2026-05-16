@@ -45,9 +45,7 @@ interface ContactWriteInput {
   notes?: string;
 }
 
-interface BuildContactPayloadOptions {
-  fallbackFullName?: string;
-}
+interface BuildContactPayloadOptions {}
 
 @Injectable()
 export class ContactsService {
@@ -677,14 +675,6 @@ export class ContactsService {
     workspaceId: string,
     row: ParsedContactCsvRow,
   ): Promise<'created' | 'skipped'> {
-    const fallbackFullName =
-      this.cleanString(row.fullName) ||
-      this.cleanString([row.firstName, row.lastName].filter(Boolean).join(' ')) ||
-      this.cleanString(row.company) ||
-      this.cleanString(row.email) ||
-      this.cleanString(row.phone) ||
-      `Imported Contact ${row.rowNumber}`;
-
     const payload = this.buildContactPayload({
       firstName: row.firstName,
       lastName: row.lastName,
@@ -700,8 +690,6 @@ export class ContactsService {
       emailStatus: ContactEmailStatus.UNKNOWN,
       whatsappStatus: ContactWhatsappStatus.UNKNOWN,
       subscriptionStatus: ContactSubscriptionStatus.SUBSCRIBED,
-    }, {
-      fallbackFullName,
     });
 
     if (payload.emailNormalized) {
@@ -758,10 +746,7 @@ export class ContactsService {
 
     const fullName =
       this.cleanString(input.fullName) ||
-      [firstName, lastName].filter(Boolean).join(' ').trim() ||
-      this.cleanString(input.email) ||
-      this.cleanString(input.phone) ||
-      this.cleanString(options.fallbackFullName);
+      [firstName, lastName].filter(Boolean).join(' ').trim();
 
     const email = this.normalizeEmail(input.email);
     const phone = this.normalizePhone(input.phone);

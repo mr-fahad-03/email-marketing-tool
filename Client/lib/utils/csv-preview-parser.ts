@@ -5,10 +5,10 @@
  */
 
 export type PreviewRowStatus =
-  | 'valid'         // Has email/phone + name → will be imported
-  | 'missing_name'  // Has email/phone but no resolvable name → import with fallback name
-  | 'skipped'       // All key fields blank (genuinely empty row)
-  | 'rejected';     // No email AND no phone (has some data, but unusable contact method)
+  | 'valid'          // Has Name and Email + all common optional fields
+  | 'missing_fields' // Has Name and Email but missing some optional fields
+  | 'skipped'        // All key fields blank (genuinely empty row)
+  | 'rejected';      // Missing Name or Email (mandatory fields)
 
 export interface ParsedPreviewRow {
   rowNumber: number;
@@ -28,7 +28,7 @@ export interface CsvPreviewResult {
   total: number;
   counts: {
     valid: number;
-    missing_name: number;
+    missing_fields: number;
     skipped: number;
     rejected: number;
   };
@@ -149,6 +149,7 @@ function classifyRow(
   const category = resolveValue(record, CATEGORY_KEYS);
 
   const hasEmail = !!email;
+  const hasName = !!name;
   const hasIdentifier = !!(name || company || email || phone);
   const isBlank = !hasIdentifier;
 
@@ -160,13 +161,20 @@ function classifyRow(
     reason = 'Row is empty — all key fields are blank';
   } else if (!hasEmail) {
     status = 'rejected';
-    reason = 'Email is required — contacts cannot be imported without a valid email address';
-  } else if (!name && !company) {
-    status = 'missing_name';
-    reason = 'Name is missing — will use email as display name';
+    reason = 'Email is required — contacts must have an email address';
+  } else if (!hasName) {
+    status = 'rejected';
+    reason = 'Name is required — contacts must have a name';
   } else {
-    status = 'valid';
-    reason = 'Ready to import';
+    // Both Name and Email are present
+    const isMissingOptional = !phone || !company || !category;
+    if (isMissingOptional) {
+      status = 'missing_fields';
+      reason = 'Some optional fields are missing (Mobile, Company, or Category)';
+    } else {
+      status = 'valid';
+      reason = 'Ready to import';
+    }
   }
 
   return {
@@ -193,7 +201,7 @@ export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> 
     return {
       rows: [],
       total: 0,
-      counts: { valid: 0, missing_name: 0, skipped: 0, rejected: 0 },
+      counts: { valid: 0, missing_fields: 0, skipped: 0, rejected: 0 },
     };
   }
 
@@ -202,7 +210,7 @@ export async function parseCsvForPreview(file: File): Promise<CsvPreviewResult> 
   const dataRows = allRows.slice(1);
 
   const parsedRows: ParsedPreviewRow[] = [];
-  const counts = { valid: 0, missing_name: 0, skipped: 0, rejected: 0 };
+  const counts = { valid: 0, missing_fields: 0, skipped: 0, rejected: 0 };
 
   dataRows.forEach((cells, index) => {
     // Build record object keyed by lowercase header

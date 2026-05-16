@@ -35,10 +35,10 @@ interface StatCard {
 // High contrast for Light Theme
 // ---------------------------------------------------------------------------
 const STATUS_META: Record<PreviewRowStatus, { label: string; color: string }> = {
-  valid:        { label: 'Valid',          color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-  missing_name: { label: 'Missing Name',   color: 'text-amber-700 bg-amber-50 border-amber-200' },
-  skipped:      { label: 'Skipped',        color: 'text-zinc-600 bg-zinc-50 border-zinc-200' },
-  rejected:     { label: 'Rejected',       color: 'text-rose-700 bg-rose-50 border-rose-200' },
+  valid:          { label: 'Valid',          color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+  missing_fields: { label: 'Missing Fields', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+  skipped:        { label: 'Skipped',        color: 'text-zinc-600 bg-zinc-50 border-zinc-200' },
+  rejected:       { label: 'Rejected',       color: 'text-rose-700 bg-rose-50 border-rose-200' },
 };
 
 function StatusBadge({ status }: { status: PreviewRowStatus }) {
@@ -117,9 +117,9 @@ export function CsvPreviewDashboard({
       activeBg: 'bg-emerald-100 border-emerald-400',
     },
     {
-      id: 'missing_name',
+      id: 'missing_fields',
       label: 'Missing Fields',
-      count: result.counts.missing_name,
+      count: result.counts.missing_fields,
       icon: <FileWarning className="h-5 w-5" />,
       color: 'text-amber-600',
       bgColor: 'bg-amber-50',
@@ -139,7 +139,7 @@ export function CsvPreviewDashboard({
     {
       id: 'ready_to_import',
       label: 'Ready to Import',
-      count: result.counts.valid + result.counts.missing_name,
+      count: result.counts.valid + result.counts.missing_fields,
       icon: <CheckCircle2 className="h-5 w-5" />,
       color: 'text-violet-600',
       bgColor: 'bg-violet-50',
@@ -148,14 +148,14 @@ export function CsvPreviewDashboard({
     },
   ];
 
-  const pendingCount = result.counts.valid + result.counts.missing_name;
+  const pendingCount = result.counts.valid + result.counts.missing_fields;
 
   const filteredRows = useMemo(() => {
     const base =
       activeFilter === 'all'
         ? result.rows
         : activeFilter === 'ready_to_import'
-          ? result.rows.filter((r) => r.status === 'valid' || r.status === 'missing_name')
+          ? result.rows.filter((r) => r.status === 'valid' || r.status === 'missing_fields')
           : result.rows.filter((r) => r.status === activeFilter);
     return sortRows(base, sortKey, sortDir);
   }, [activeFilter, result.rows, sortKey, sortDir]);
@@ -185,7 +185,7 @@ export function CsvPreviewDashboard({
       : <ChevronDown className="ml-1 inline h-3 w-3 text-blue-600 stroke-[3px]" />;
   };
 
-  const importableCount = result.counts.valid + result.counts.missing_name;
+  const importableCount = result.counts.valid + result.counts.missing_fields;
 
   return (
     <div className="flex flex-col gap-6">
@@ -213,10 +213,10 @@ export function CsvPreviewDashboard({
               {result.counts.rejected} REJECTED
             </span>
           )}
-          {result.counts.missing_name > 0 && (
+          {result.counts.missing_fields > 0 && (
             <span className="flex items-center gap-1.5 rounded-full bg-amber-100 px-3.5 py-1.5 text-xs font-black text-amber-700 shadow-sm">
               <FileWarning className="h-3.5 w-3.5" />
-              {result.counts.missing_name} MISSING NAME
+              {result.counts.missing_fields} MISSING FIELDS
             </span>
           )}
         </div>
