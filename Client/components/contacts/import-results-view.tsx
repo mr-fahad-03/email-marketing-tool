@@ -14,7 +14,7 @@ import {
 import { useState } from 'react';
 import type { ContactsImportResult } from '@/lib/types/contact';
 
-interface ImportResultsModalProps {
+interface ImportResultsViewProps {
   result: ContactsImportResult;
   fileName: string;
   onClose: () => void;
@@ -306,7 +306,7 @@ function SuccessRateBar({
 // Main modal
 // Switched to Light Theme with professional zinc/color accents
 // ---------------------------------------------------------------------------
-export function ImportResultsModal({ result, fileName, onClose }: ImportResultsModalProps) {
+export function ImportResultsView({ result, fileName, onClose }: ImportResultsViewProps) {
   const skippedRows  = result.skippedRows ?? [];
   const invalidRows  = result.invalidRows ?? [];
   const hasSkipped   = skippedRows.length > 0;
@@ -346,12 +346,7 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-zinc-900/40 backdrop-blur-md" />
-
-      {/* Panel */}
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
+    <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
 
         {/* ── Header ── */}
         <div className="flex items-start justify-between border-b border-zinc-100 px-6 py-5 bg-white">
@@ -544,7 +539,6 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
             Done
           </button>
         </div>
-      </div>
     </div>
   );
 }

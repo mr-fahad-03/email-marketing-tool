@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CsvPreviewDashboard } from '@/components/contacts/csv-preview-dashboard';
-import { ImportResultsModal } from '@/components/contacts/import-results-modal';
+import { ImportResultsView } from '@/components/contacts/import-results-view';
 import { importContacts } from '@/lib/api/contacts';
 import { HttpClientError } from '@/lib/api/errors';
 import { consumePendingImport, clearPendingImport } from '@/lib/utils/csv-import-store';
@@ -90,6 +90,18 @@ export default function ImportPreviewPage() {
     );
   }
 
+  if (showResults && importResult) {
+    return (
+      <section className="w-full">
+        <ImportResultsView
+          result={importResult}
+          fileName={fileName}
+          onClose={handleResultsClose}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-6">
       {/* Header */}
@@ -146,14 +158,6 @@ export default function ImportPreviewPage() {
         />
       </div>
 
-      {/* Results modal */}
-      {showResults && importResult && (
-        <ImportResultsModal
-          result={importResult}
-          fileName={fileName}
-          onClose={handleResultsClose}
-        />
-      )}
     </section>
   );
 }
