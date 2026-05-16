@@ -204,6 +204,53 @@ export function CsvPreviewDashboard({
   return (
     <div className="flex flex-col gap-6">
 
+      {/* ── Action bar ── */}
+      <div className="relative z-20 flex flex-col gap-4 rounded-3xl border border-zinc-800 bg-zinc-900 px-8 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between mb-2">
+        <div>
+          <p className="text-sm font-black text-zinc-400 tracking-tight uppercase mb-1">
+            Step 2: Review & Commit
+          </p>
+          <p className="text-lg font-black text-white tracking-tight">
+            Ready to import{' '}
+            <span className="text-emerald-400">{importableCount}</span> contacts
+          </p>
+          <p className="mt-0.5 text-xs font-bold text-zinc-400 uppercase tracking-widest">
+            {result.counts.skipped > 0 && `${result.counts.skipped} empty rows skipped · `}
+            {result.counts.duplicate > 0 && `${result.counts.duplicate} duplicate rows skipped · `}
+            {result.counts.rejected > 0 && `${result.counts.rejected} rejected rows skipped`}
+            {result.counts.skipped === 0 && result.counts.duplicate === 0 && result.counts.rejected === 0 && 'All detected rows will be imported.'}
+          </p>
+        </div>
+        <div className="flex gap-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isImporting}
+            className="rounded-2xl border border-zinc-700 bg-transparent px-6 py-3 text-sm font-black text-zinc-300 transition hover:bg-zinc-800 hover:text-white hover:border-zinc-500 disabled:opacity-30"
+          >
+            ✕ Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onStartImport}
+            disabled={isImporting || importableCount === 0}
+            className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-8 py-3 text-sm font-black text-white transition hover:bg-emerald-500 hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 shadow-xl shadow-emerald-900/20"
+          >
+            {isImporting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                IMPORTING...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4" />
+                START IMPORT
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* ── File info banner ── */}
       <div className="flex flex-col gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-6 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -402,52 +449,6 @@ export function CsvPreviewDashboard({
         )}
       </div>
 
-      {/* ── Action bar ── */}
-      <div className="sticky bottom-4 z-10 flex flex-col gap-4 rounded-3xl border border-zinc-800 bg-zinc-900 px-8 py-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-black text-zinc-400 tracking-tight uppercase mb-1">
-            Step 2: Review & Commit
-          </p>
-          <p className="text-lg font-black text-white tracking-tight">
-            Ready to import{' '}
-            <span className="text-emerald-400">{importableCount}</span> contacts
-          </p>
-          <p className="mt-0.5 text-xs font-bold text-zinc-400 uppercase tracking-widest">
-            {result.counts.skipped > 0 && `${result.counts.skipped} empty rows skipped · `}
-            {result.counts.duplicate > 0 && `${result.counts.duplicate} duplicate rows skipped · `}
-            {result.counts.rejected > 0 && `${result.counts.rejected} rejected rows skipped`}
-            {result.counts.skipped === 0 && result.counts.duplicate === 0 && result.counts.rejected === 0 && 'All detected rows will be imported.'}
-          </p>
-        </div>
-        <div className="flex gap-4">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isImporting}
-            className="rounded-2xl border border-zinc-700 bg-transparent px-6 py-3 text-sm font-black text-zinc-300 transition hover:bg-zinc-800 hover:text-white hover:border-zinc-500 disabled:opacity-30"
-          >
-            ✕ Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onStartImport}
-            disabled={isImporting || importableCount === 0}
-            className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-8 py-3 text-sm font-black text-white transition hover:bg-emerald-500 hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 shadow-xl shadow-emerald-900/20"
-          >
-            {isImporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                IMPORTING...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="h-4 w-4" />
-                START IMPORT
-              </>
-            )}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

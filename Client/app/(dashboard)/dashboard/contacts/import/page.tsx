@@ -98,7 +98,7 @@ export default function ImportPreviewPage() {
           <button
             type="button"
             onClick={handleCancel}
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-300 transition hover:bg-zinc-700 hover:text-zinc-100"
+            className="flex items-center gap-1.5 rounded-lg border border-black bg-black px-3 py-2 text-sm text-white transition hover:bg-black hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
@@ -128,9 +128,9 @@ export default function ImportPreviewPage() {
             </button>
           )}
 
-          <div className="flex items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-800/40 px-4 py-2">
-            <FileSpreadsheet className="h-4 w-4 text-blue-400" />
-            <span className="max-w-[200px] truncate text-sm text-zinc-300">{fileName}</span>
+          <div className="flex items-center gap-2 rounded-xl border border-black bg-black px-4 py-2 text-white transition hover:bg-black hover:text-white">
+            <FileSpreadsheet className="h-4 w-4 text-white" />
+            <span className="max-w-[200px] truncate text-sm text-white">{fileName}</span>
           </div>
         </div>
       </div>

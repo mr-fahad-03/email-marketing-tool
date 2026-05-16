@@ -66,7 +66,7 @@ export function CsvImportCard({ onPreview }: CsvImportCardProps) {
         </Button>
         <Button
           type="button"
-          className="sm:w-auto gap-2 bg-blue-600 hover:bg-blue-500 text-white"
+          className="sm:w-auto gap-2 bg-black hover:bg-black text-white hover:text-white"
           disabled={!selectedFile || isParsing}
           onClick={() => void handlePreviewClick()}
         >
