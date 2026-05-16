@@ -22,6 +22,7 @@ interface ImportResultsModalProps {
 
 // ---------------------------------------------------------------------------
 // Stat card
+// Optimized for Light Theme with high contrast text
 // ---------------------------------------------------------------------------
 function StatCard({
   label,
@@ -41,17 +42,19 @@ function StatCard({
   badgeText?: string;
 }) {
   return (
-    <div className={`flex flex-col gap-3 rounded-xl border p-4 ${bgClass} ${borderClass}`}>
-      <div className={`${colorClass} opacity-80`}>{icon}</div>
+    <div className={`flex flex-col gap-3 rounded-xl border p-4 shadow-sm transition-shadow hover:shadow-md ${bgClass} ${borderClass}`}>
+      <div className={colorClass}>{icon}</div>
       <div>
         <p className={`text-2xl font-bold tabular-nums leading-none ${colorClass}`}>
           {count.toLocaleString()}
         </p>
-        <p className="mt-1.5 text-xs font-medium text-zinc-400 leading-snug">{label}</p>
+        <p className="mt-2 text-xs font-bold text-zinc-700 leading-tight uppercase tracking-wide">
+          {label}
+        </p>
       </div>
       {badgeText && (
         <span
-          className={`self-start rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ${borderClass} ${colorClass}`}
+          className={`self-start rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wider uppercase ${borderClass} ${colorClass} bg-white/50 backdrop-blur-sm`}
         >
           {badgeText}
         </span>
@@ -62,8 +65,7 @@ function StatCard({
 
 // ---------------------------------------------------------------------------
 // Expandable section
-// The header is a plain <div> to avoid the button-in-button hydration error.
-// Only the toggle area (left portion) is keyboard/click-interactive.
+// Header is a div, toggle is a button. Clean, high-contrast light theme.
 // ---------------------------------------------------------------------------
 function ExpandableSection({
   title,
@@ -85,44 +87,44 @@ function ExpandableSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className={`overflow-hidden rounded-xl border ${borderColor} bg-zinc-900/70`}>
-      {/* Header row — plain div so actionSlot buttons are NOT nested inside a button */}
-      <div className="flex w-full items-center justify-between px-4 py-3">
-        {/* Toggle trigger — only this area toggles open/close */}
+    <div className={`overflow-hidden rounded-xl border bg-white shadow-sm ${borderColor}`}>
+      {/* Header row */}
+      <div className="flex w-full items-center justify-between px-5 py-3.5 bg-zinc-50/50">
+        {/* Toggle trigger */}
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="flex flex-1 items-center gap-2 text-left focus:outline-none"
+          className="flex flex-1 items-center gap-3 text-left focus:outline-none group"
           aria-expanded={open}
         >
-          <span className={`text-sm font-semibold ${colorClass}`}>{title}</span>
+          <span className={`text-sm font-bold tracking-tight ${colorClass}`}>{title}</span>
           <span
-            className={`rounded-full border px-2 py-0.5 text-xs font-bold tabular-nums ${borderColor} ${colorClass}`}
+            className={`rounded-full border px-2.5 py-0.5 text-xs font-black tabular-nums bg-white shadow-sm ${borderColor} ${colorClass}`}
           >
             {count}
           </span>
         </button>
 
-        {/* Right-side controls — separate from the toggle button */}
-        <div className="flex items-center gap-3 ml-3">
+        {/* Right-side controls */}
+        <div className="flex items-center gap-4 ml-4">
           {open && actionSlot}
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors focus:outline-none"
+            className="flex items-center gap-1.5 text-xs font-bold text-zinc-500 hover:text-zinc-800 transition-colors focus:outline-none"
             aria-label={open ? 'Collapse section' : 'Expand section'}
           >
             <span>{open ? 'Hide' : 'Show'}</span>
             {open
-              ? <ChevronUp className="h-4 w-4" />
-              : <ChevronDown className="h-4 w-4" />}
+              ? <ChevronUp className="h-4 w-4 stroke-[2.5px]" />
+              : <ChevronDown className="h-4 w-4 stroke-[2.5px]" />}
           </button>
         </div>
       </div>
 
       {/* Body */}
       {open && (
-        <div className="border-t border-zinc-800">
+        <div className="border-t border-zinc-100 bg-white">
           {children}
         </div>
       )}
@@ -132,6 +134,7 @@ function ExpandableSection({
 
 // ---------------------------------------------------------------------------
 // Paginated table
+// Dark header, Light body for maximum readability
 // ---------------------------------------------------------------------------
 function PaginatedTable({
   headers,
@@ -150,11 +153,11 @@ function PaginatedTable({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-zinc-900/80 border-b border-zinc-800">
+            <tr className="bg-zinc-800 border-b border-zinc-900">
               {headers.map((h) => (
                 <th
                   key={h}
-                  className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-zinc-500"
+                  className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.1em] text-zinc-300"
                 >
                   {h}
                 </th>
@@ -166,12 +169,12 @@ function PaginatedTable({
               <tr
                 key={idx}
                 className={[
-                  'border-t border-zinc-800/50 transition-colors hover:bg-zinc-800/25',
-                  idx % 2 !== 0 ? 'bg-zinc-800/10' : '',
+                  'border-b border-zinc-100 transition-colors hover:bg-zinc-50',
+                  idx % 2 !== 0 ? 'bg-zinc-50/50' : 'bg-white',
                 ].join(' ')}
               >
                 {cells.map((cell, ci) => (
-                  <td key={ci} className="max-w-[200px] truncate px-4 py-2.5 text-xs text-zinc-300">
+                  <td key={ci} className="max-w-[200px] truncate px-4 py-3 text-[13px] font-medium text-zinc-700">
                     {cell}
                   </td>
                 ))}
@@ -179,8 +182,8 @@ function PaginatedTable({
             ))}
             {paged.length === 0 && (
               <tr>
-                <td colSpan={headers.length} className="py-8 text-center text-xs text-zinc-600">
-                  No records.
+                <td colSpan={headers.length} className="py-12 text-center text-sm font-medium text-zinc-400 italic">
+                  No records found.
                 </td>
               </tr>
             )}
@@ -189,8 +192,8 @@ function PaginatedTable({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-2.5">
-          <span className="text-xs text-zinc-500">
+        <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3 bg-zinc-50/30">
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">
             Page {page} / {totalPages} · {rows.length} rows
           </span>
           <div className="flex gap-2">
@@ -198,7 +201,7 @@ function PaginatedTable({
               type="button"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300 transition hover:bg-zinc-700 disabled:opacity-40"
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-1.5 text-xs font-bold text-zinc-700 transition hover:bg-zinc-50 hover:border-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
             >
               Prev
             </button>
@@ -206,7 +209,7 @@ function PaginatedTable({
               type="button"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1 text-xs text-zinc-300 transition hover:bg-zinc-700 disabled:opacity-40"
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-1.5 text-xs font-bold text-zinc-700 transition hover:bg-zinc-50 hover:border-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
             >
               Next
             </button>
@@ -239,7 +242,8 @@ function downloadCsv(filename: string, content: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Success rate bar — standalone sub-component for clarity
+// Success rate bar
+// Redesigned for extreme clarity and contrast
 // ---------------------------------------------------------------------------
 function SuccessRateBar({
   rate,
@@ -252,46 +256,45 @@ function SuccessRateBar({
   skipped: number;
   invalid: number;
 }) {
-  // Pick label colour based on rate
   const rateColor =
     rate === 100
-      ? 'text-emerald-400'
+      ? 'text-emerald-600'
       : rate >= 50
-        ? 'text-amber-400'
-        : 'text-rose-400';
+        ? 'text-amber-600'
+        : 'text-rose-600';
 
   return (
-    <div className="rounded-xl border border-zinc-700/60 bg-zinc-800/30 p-4">
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-5 shadow-inner">
       {/* Title row */}
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-semibold text-zinc-200">Import Success Rate</p>
-        <span className={`text-lg font-extrabold tabular-nums ${rateColor}`}>{rate}%</span>
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm font-bold text-zinc-800 uppercase tracking-tight">Import Success Rate</p>
+        <span className={`text-2xl font-black tabular-nums ${rateColor}`}>{rate}%</span>
       </div>
 
       {/* Progress bar */}
-      <div className="relative h-3 w-full overflow-hidden rounded-full bg-zinc-700/60">
+      <div className="relative h-4 w-full overflow-hidden rounded-full bg-zinc-200 shadow-inner">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700"
+          className="h-full rounded-full bg-emerald-500 transition-all duration-1000 ease-out"
           style={{ width: `${rate}%` }}
         />
       </div>
 
       {/* Legend pills */}
-      <div className="mt-3 flex flex-wrap gap-3">
-        <span className="flex items-center gap-1.5 text-xs font-medium">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-          <span className="text-emerald-300">{created} imported</span>
+      <div className="mt-4 flex flex-wrap gap-4">
+        <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-zinc-100 shadow-sm">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          <span className="text-xs font-bold text-zinc-700">{created} imported</span>
         </span>
         {skipped > 0 && (
-          <span className="flex items-center gap-1.5 text-xs font-medium">
-            <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-            <span className="text-amber-300">{skipped} skipped (duplicates)</span>
+          <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-zinc-100 shadow-sm">
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+            <span className="text-xs font-bold text-zinc-700">{skipped} skipped</span>
           </span>
         )}
         {invalid > 0 && (
-          <span className="flex items-center gap-1.5 text-xs font-medium">
-            <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
-            <span className="text-rose-300">{invalid} rejected</span>
+          <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-zinc-100 shadow-sm">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+            <span className="text-xs font-bold text-zinc-700">{invalid} rejected</span>
           </span>
         )}
       </div>
@@ -301,6 +304,7 @@ function SuccessRateBar({
 
 // ---------------------------------------------------------------------------
 // Main modal
+// Switched to Light Theme with professional zinc/color accents
 // ---------------------------------------------------------------------------
 export function ImportResultsModal({ result, fileName, onClose }: ImportResultsModalProps) {
   const skippedRows  = result.skippedRows ?? [];
@@ -344,30 +348,30 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-zinc-900/40 backdrop-blur-md" />
 
       {/* Panel */}
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-700/60 bg-zinc-900 shadow-2xl">
+      <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
 
         {/* ── Header ── */}
-        <div className="flex items-start justify-between border-b border-zinc-800 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
-              <FileText className="h-5 w-5 text-emerald-400" />
+        <div className="flex items-start justify-between border-b border-zinc-100 px-6 py-5 bg-white">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 border border-emerald-100 shadow-sm">
+              <FileText className="h-6 w-6 text-emerald-600" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-zinc-100">Import Results</h2>
-              <p className="text-xs text-zinc-500 mt-0.5">
+              <h2 className="text-lg font-black text-zinc-900 tracking-tight">Import Results</h2>
+              <p className="text-xs font-bold text-zinc-500 mt-0.5 uppercase tracking-wider">
                 {fileName} &middot; {result.total} total rows processed
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {hasAnyIssues && (
               <button
                 type="button"
                 onClick={handleDownloadAll}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:bg-zinc-700 hover:border-zinc-500"
+                className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-black text-zinc-800 transition hover:bg-zinc-100 hover:border-zinc-300 shadow-sm"
               >
                 <Download className="h-3.5 w-3.5" />
                 Download All Issues
@@ -376,15 +380,15 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200"
+              className="rounded-xl p-2 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5 stroke-[2.5px]" />
             </button>
           </div>
         </div>
 
         {/* ── Scrollable body ── */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
 
           {/* Success rate bar */}
           <SuccessRateBar
@@ -395,40 +399,40 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
           />
 
           {/* Stat cards */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <StatCard
               label="Successfully Imported"
               count={result.created}
-              icon={<CheckCircle2 className="h-5 w-5" />}
-              colorClass="text-emerald-400"
-              borderClass="border-emerald-500/25"
-              bgClass="bg-emerald-500/8"
+              icon={<CheckCircle2 className="h-6 w-6" />}
+              colorClass="text-emerald-600"
+              borderClass="border-emerald-100"
+              bgClass="bg-emerald-50/50"
             />
             <StatCard
               label="Skipped (Duplicates)"
               count={result.skipped}
-              icon={<SkipForward className="h-5 w-5" />}
-              colorClass="text-amber-400"
-              borderClass="border-amber-500/25"
-              bgClass="bg-amber-500/8"
-              badgeText={hasSkipped ? 'See details ↓' : undefined}
+              icon={<SkipForward className="h-6 w-6" />}
+              colorClass="text-amber-600"
+              borderClass="border-amber-100"
+              bgClass="bg-amber-50/50"
+              badgeText={hasSkipped ? 'View Details' : undefined}
             />
             <StatCard
               label="Rejected / Errors"
               count={result.invalid}
-              icon={<XCircle className="h-5 w-5" />}
-              colorClass="text-rose-400"
-              borderClass="border-rose-500/25"
-              bgClass="bg-rose-500/8"
-              badgeText={hasInvalid ? 'See details ↓' : undefined}
+              icon={<XCircle className="h-6 w-6" />}
+              colorClass="text-rose-600"
+              borderClass="border-rose-100"
+              bgClass="bg-rose-50/50"
+              badgeText={hasInvalid ? 'View Details' : undefined}
             />
             <StatCard
               label="Total Rows"
               count={result.total}
-              icon={<FileText className="h-5 w-5" />}
-              colorClass="text-blue-400"
-              borderClass="border-blue-500/25"
-              bgClass="bg-blue-500/8"
+              icon={<FileText className="h-6 w-6" />}
+              colorClass="text-blue-600"
+              borderClass="border-blue-100"
+              bgClass="bg-blue-50/50"
             />
           </div>
 
@@ -437,26 +441,26 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
             <ExpandableSection
               title="Skipped — Duplicate Contacts"
               count={skippedRows.length}
-              colorClass="text-amber-400"
-              borderColor="border-amber-500/25"
+              colorClass="text-amber-700"
+              borderColor="border-amber-200"
               defaultOpen
               actionSlot={
                 <button
                   type="button"
                   onClick={handleDownloadSkipped}
-                  className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20 hover:border-amber-500/50"
+                  className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100 hover:border-amber-300"
                 >
-                  <Download className="h-3 w-3" />
+                  <Download className="h-3.5 w-3.5" />
                   Download CSV
                 </button>
               }
             >
               {/* Info banner */}
-              <div className="flex items-start gap-3 border-b border-zinc-800 bg-amber-500/5 px-4 py-3">
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
-                <p className="text-xs leading-relaxed text-zinc-300">
+              <div className="flex items-start gap-4 border-b border-amber-100 bg-amber-50/30 px-5 py-4">
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+                <p className="text-sm font-medium leading-relaxed text-zinc-700">
                   These contacts already exist in your system and were{' '}
-                  <strong className="font-semibold text-amber-300">not re-imported</strong> to
+                  <strong className="font-bold text-amber-700 underline decoration-amber-300 underline-offset-4">not re-imported</strong> to
                   prevent duplicates. Review the list below or download it to clean up your
                   original CSV.
                 </p>
@@ -465,14 +469,14 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
               <PaginatedTable
                 headers={['Row', 'Name', 'Email', 'Phone', 'Company', 'Status']}
                 rows={skippedRows.map((r) => [
-                  <span key="row" className="font-mono text-[11px] text-zinc-500">#{r.row}</span>,
-                  <span key="name" className="font-medium text-zinc-100">{r.name || '—'}</span>,
-                  <span key="email" className="text-zinc-300">{r.email || <span className="text-zinc-600">—</span>}</span>,
-                  <span key="phone" className="text-zinc-300">{r.phone || <span className="text-zinc-600">—</span>}</span>,
-                  <span key="company" className="text-zinc-400">{r.company || <span className="text-zinc-600">—</span>}</span>,
+                  <span key="row" className="font-mono text-zinc-400 font-bold">#{r.row}</span>,
+                  <span key="name" className="font-bold text-zinc-900">{r.name || '—'}</span>,
+                  <span key="email" className="font-medium text-zinc-700">{r.email || <span className="text-zinc-400">—</span>}</span>,
+                  <span key="phone" className="font-medium text-zinc-700">{r.phone || <span className="text-zinc-400">—</span>}</span>,
+                  <span key="company" className="font-medium text-zinc-600">{r.company || <span className="text-zinc-400">—</span>}</span>,
                   <span
                     key="status"
-                    className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
+                    className="inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-3 py-0.5 text-[11px] font-black text-amber-700 uppercase tracking-tight shadow-sm"
                   >
                     Duplicate
                   </span>,
@@ -486,16 +490,16 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
             <ExpandableSection
               title="Rejected — Error Details"
               count={invalidRows.length}
-              colorClass="text-rose-400"
-              borderColor="border-rose-500/25"
+              colorClass="text-rose-700"
+              borderColor="border-rose-200"
               defaultOpen={!hasSkipped}
               actionSlot={
                 <button
                   type="button"
                   onClick={handleDownloadInvalid}
-                  className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-medium text-rose-300 transition hover:bg-rose-500/20 hover:border-rose-500/50"
+                  className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 hover:border-rose-300"
                 >
-                  <Download className="h-3 w-3" />
+                  <Download className="h-3.5 w-3.5" />
                   Download CSV
                 </button>
               }
@@ -503,14 +507,14 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
               <PaginatedTable
                 headers={['Row', 'Status', 'Error Reason']}
                 rows={invalidRows.map((r) => [
-                  <span key="row" className="font-mono text-[11px] text-zinc-500">#{r.row}</span>,
+                  <span key="row" className="font-mono text-zinc-400 font-bold">#{r.row}</span>,
                   <span
                     key="status"
-                    className="inline-flex items-center rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300"
+                    className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-3 py-0.5 text-[11px] font-black text-rose-700 uppercase tracking-tight shadow-sm"
                   >
                     Rejected
                   </span>,
-                  <span key="reason" className="text-zinc-300">{r.reason}</span>,
+                  <span key="reason" className="font-bold text-zinc-800">{r.reason}</span>,
                 ])}
               />
             </ExpandableSection>
@@ -518,24 +522,24 @@ export function ImportResultsModal({ result, fileName, onClose }: ImportResultsM
 
           {/* No issues state */}
           {!hasAnyIssues && (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 py-12">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 ring-1 ring-emerald-500/20">
-                <CheckCircle2 className="h-7 w-7 text-emerald-400" />
+            <div className="flex flex-col items-center gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/30 py-16 shadow-inner">
+              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white border border-emerald-100 shadow-lg">
+                <CheckCircle2 className="h-10 w-10 text-emerald-500" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-emerald-300">All contacts imported cleanly</p>
-                <p className="mt-1 text-xs text-zinc-500">No duplicates or errors were detected.</p>
+                <p className="text-lg font-black text-emerald-900 tracking-tight">All contacts imported cleanly</p>
+                <p className="mt-2 text-sm font-bold text-zinc-500 uppercase tracking-wide">No duplicates or errors were detected.</p>
               </div>
             </div>
           )}
         </div>
 
         {/* ── Footer ── */}
-        <div className="flex items-center justify-end border-t border-zinc-800 px-6 py-4">
+        <div className="flex items-center justify-end border-t border-zinc-100 px-6 py-5 bg-zinc-50/50">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl bg-zinc-700 px-6 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-600 active:scale-95"
+            className="rounded-xl bg-black px-10 py-3 text-sm font-black text-white transition hover:bg-zinc-700 active:scale-95 shadow-lg uppercase tracking-widest"
           >
             Done
           </button>
