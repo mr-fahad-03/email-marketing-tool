@@ -17,7 +17,7 @@ import type { CsvPreviewResult, ParsedPreviewRow, PreviewRowStatus } from '@/lib
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type FilterStatus = PreviewRowStatus | 'all';
+type FilterStatus = PreviewRowStatus | 'all' | 'ready_to_import';
 
 interface StatCard {
   id: FilterStatus;
@@ -127,16 +127,6 @@ export function CsvPreviewDashboard({
       activeBg: 'bg-amber-100 border-amber-400',
     },
     {
-      id: 'skipped',
-      label: 'Skipped',
-      count: result.counts.skipped,
-      icon: <SkipForward className="h-5 w-5" />,
-      color: 'text-zinc-600',
-      bgColor: 'bg-zinc-100',
-      borderColor: 'border-zinc-300',
-      activeBg: 'bg-zinc-200 border-zinc-500',
-    },
-    {
       id: 'rejected',
       label: 'Rejected',
       count: result.counts.rejected,
@@ -146,6 +136,16 @@ export function CsvPreviewDashboard({
       borderColor: 'border-rose-200',
       activeBg: 'bg-rose-100 border-rose-400',
     },
+    {
+      id: 'ready_to_import',
+      label: 'Ready to Import',
+      count: result.counts.valid + result.counts.missing_name,
+      icon: <CheckCircle2 className="h-5 w-5" />,
+      color: 'text-violet-600',
+      bgColor: 'bg-violet-50',
+      borderColor: 'border-violet-200',
+      activeBg: 'bg-violet-100 border-violet-400',
+    },
   ];
 
   const pendingCount = result.counts.valid + result.counts.missing_name;
@@ -154,7 +154,9 @@ export function CsvPreviewDashboard({
     const base =
       activeFilter === 'all'
         ? result.rows
-        : result.rows.filter((r) => r.status === activeFilter);
+        : activeFilter === 'ready_to_import'
+          ? result.rows.filter((r) => r.status === 'valid' || r.status === 'missing_name')
+          : result.rows.filter((r) => r.status === activeFilter);
     return sortRows(base, sortKey, sortDir);
   }, [activeFilter, result.rows, sortKey, sortDir]);
 
@@ -251,21 +253,6 @@ export function CsvPreviewDashboard({
           );
         })}
 
-        {/* Pending card — highlight */}
-        <button
-          onClick={() => handleCardClick('all')}
-          className="group relative flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 p-5 text-left transition-all duration-300 hover:shadow-xl hover:-translate-y-1 focus:outline-none shadow-sm"
-        >
-          <div className="text-violet-600 transition-transform duration-300 group-hover:scale-110">
-            <Loader2 className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-3xl font-black tabular-nums text-violet-600 leading-none">
-              {pendingCount.toLocaleString()}
-            </p>
-            <p className="mt-2 text-[11px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Ready to Import</p>
-          </div>
-        </button>
       </div>
 
       {/* ── Filter label ── */}
@@ -393,7 +380,10 @@ export function CsvPreviewDashboard({
       {/* ── Action bar ── */}
       <div className="sticky bottom-4 z-10 flex flex-col gap-4 rounded-3xl border border-zinc-800 bg-zinc-900 px-8 py-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-base font-black text-white tracking-tight">
+          <p className="text-sm font-black text-zinc-400 tracking-tight uppercase mb-1">
+            Step 2: Review & Commit
+          </p>
+          <p className="text-lg font-black text-white tracking-tight">
             Ready to import{' '}
             <span className="text-emerald-400">{importableCount}</span> contacts
           </p>

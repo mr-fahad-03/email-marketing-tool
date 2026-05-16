@@ -135,12 +135,13 @@ export function ContactFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="fullName">Contact Name</Label>
+              <Label htmlFor="fullName">Contact Name <span className="text-rose-500">*</span></Label>
               <Input
                 id="fullName"
                 className="border-zinc-800 bg-zinc-900 text-zinc-100"
                 {...form.register('fullName')}
               />
+              <FieldError message={form.formState.errors.fullName?.message} />
             </div>
 
             <div className="space-y-2">
@@ -153,7 +154,7 @@ export function ContactFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Email <span className="text-rose-500">*</span></Label>
               <Input
                 id="email"
                 type="email"
@@ -173,11 +174,11 @@ export function ContactFormDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="mobile">Mobile</Label>
+              <Label htmlFor="phone">Mobile</Label>
               <Input
-                id="mobile"
+                id="phone"
                 className="border-zinc-800 bg-zinc-900 text-zinc-100"
-                {...form.register('mobile')}
+                {...form.register('phone')}
               />
             </div>
 

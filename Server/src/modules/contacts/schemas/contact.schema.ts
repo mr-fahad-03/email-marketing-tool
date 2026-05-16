@@ -1,4 +1,4 @@
-﻿import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 import {
   CONTACT_EMAIL_STATUS_VALUES,
@@ -25,14 +25,14 @@ export class Contact {
   @Prop({ required: true, trim: true, maxlength: 160 })
   fullName!: string;
 
-  @Prop({ type: String, default: null, lowercase: true, trim: true })
-  email!: string | null;
+  @Prop({ type: String, required: true, lowercase: true, trim: true })
+  email!: string;
 
   @Prop({ type: String, default: null, trim: true })
   phone!: string | null;
 
-  @Prop({ type: String, default: null, select: false })
-  emailNormalized!: string | null;
+  @Prop({ type: String, required: true, select: false })
+  emailNormalized!: string;
 
   @Prop({ type: String, default: null, select: false })
   phoneNormalized!: string | null;
@@ -97,15 +97,7 @@ ContactSchema.index(
   },
 );
 
-ContactSchema.index(
-  { workspaceId: 1, phoneNormalized: 1 },
-  {
-    unique: true,
-    partialFilterExpression: {
-      phoneNormalized: { $type: 'string', $exists: true, $ne: '' },
-    },
-  },
-);
+ContactSchema.index({ workspaceId: 1, phoneNormalized: 1 });
 
 ContactSchema.index({ workspaceId: 1, tags: 1 });
 ContactSchema.index({ workspaceId: 1, category: 1 });

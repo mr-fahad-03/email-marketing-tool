@@ -48,6 +48,7 @@ export default function ImportPreviewPage() {
 
     setIsImporting(true);
 
+    toast.info('Starting import — please wait while the server processes the data...');
     try {
       const completed = await importContacts(file);
       clearPendingImport();
@@ -103,9 +104,13 @@ export default function ImportPreviewPage() {
             Back
           </button>
           <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black text-white uppercase tracking-wider">Step 1</span>
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Preview (Local Analysis)</span>
+            </div>
             <h2 className="text-xl font-semibold text-zinc-100">Import Preview</h2>
             <p className="text-sm text-zinc-400">
-              Review your CSV data before committing to the import.
+              Review your data locally. No contacts have been imported yet.
             </p>
           </div>
         </div>

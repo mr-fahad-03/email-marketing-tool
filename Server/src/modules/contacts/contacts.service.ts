@@ -46,7 +46,6 @@ interface ContactWriteInput {
 }
 
 interface BuildContactPayloadOptions {
-  allowMissingContactMethod?: boolean;
   fallbackFullName?: string;
 }
 
@@ -153,6 +152,7 @@ export class ContactsService {
 
     const filter: Record<string, unknown> = {
       workspaceId: this.toObjectId(workspaceId),
+      email: { $ne: null, $exists: true, $not: /^\s*$/ },
     };
     const andConditions: Record<string, unknown>[] = [];
     const createStartsWithRegex = (value: string): RegExp =>
@@ -423,10 +423,10 @@ export class ContactsService {
 
     contact.firstName = merged.firstName;
     contact.lastName = merged.lastName;
-    contact.fullName = merged.fullName;
-    contact.email = merged.email;
+    contact.fullName = merged.fullName as string;
+    contact.email = merged.email as string;
     contact.phone = merged.phone;
-    contact.emailNormalized = merged.emailNormalized;
+    contact.emailNormalized = merged.emailNormalized as string;
     contact.phoneNormalized = merged.phoneNormalized;
     contact.company = merged.company;
     contact.category = merged.category;
@@ -656,7 +656,9 @@ export class ContactsService {
         invalid += 1;
         invalidRows.push({
           row: row.rowNumber,
-          reason: error instanceof Error ? error.message : 'Invalid row',
+          reason: error instanceof AppException 
+            ? (error.getResponse() as any).message 
+            : error instanceof Error ? error.message : 'Invalid row or missing required fields',
         });
       }
     }
@@ -699,23 +701,14 @@ export class ContactsService {
       whatsappStatus: ContactWhatsappStatus.UNKNOWN,
       subscriptionStatus: ContactSubscriptionStatus.SUBSCRIBED,
     }, {
-      allowMissingContactMethod: true,
       fallbackFullName,
     });
 
-    const duplicateFilter: Record<string, unknown>[] = [];
     if (payload.emailNormalized) {
-      duplicateFilter.push({ emailNormalized: payload.emailNormalized });
-    }
-    if (payload.phoneNormalized) {
-      duplicateFilter.push({ phoneNormalized: payload.phoneNormalized });
-    }
-
-    if (duplicateFilter.length) {
       const existing = await this.contactModel
         .findOne({
           workspaceId: this.toObjectId(workspaceId),
-          $or: duplicateFilter,
+          emailNormalized: payload.emailNormalized,
         })
         .select('_id')
         .lean()
@@ -745,9 +738,9 @@ export class ContactsService {
     firstName: string;
     lastName: string;
     fullName: string;
-    email: string | null;
+    email: string;
     phone: string | null;
-    emailNormalized: string | null;
+    emailNormalized: string;
     phoneNormalized: string | null;
     company: string;
     category: string;
@@ -774,29 +767,23 @@ export class ContactsService {
     const phone = this.normalizePhone(input.phone);
     const labels = this.normalizeLabels(input.labels ?? []);
 
-    if (!email && !phone && !options.allowMissingContactMethod) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        'CONTACT_METHOD_REQUIRED',
-        'At least one contact method (email or phone) is required',
-      );
-    }
-
     if (!fullName) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        'FULL_NAME_REQUIRED',
-        'fullName could not be resolved',
-      );
+      throw new AppException(HttpStatus.BAD_REQUEST, 'FULL_NAME_REQUIRED', 'Contact Name is required');
+    }
+    if (!email) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'EMAIL_REQUIRED', 'Email is required');
+    }
+    if (!this.isValidEmail(email)) {
+      throw new AppException(HttpStatus.BAD_REQUEST, 'INVALID_EMAIL', 'A valid email address is required');
     }
 
     return {
       firstName,
       lastName,
-      fullName,
-      email,
+      fullName: fullName!,
+      email: email!,
       phone,
-      emailNormalized: email,
+      emailNormalized: email!,
       phoneNormalized: phone,
       company: this.cleanString(input.company),
       category: this.normalizeCategory(input.category),
@@ -879,6 +866,14 @@ export class ContactsService {
     contact: ContactDocument,
     allowSilentDuplicateSkip = false,
   ): Promise<ContactDocument> {
+    if (!contact.email || !this.isValidEmail(contact.email)) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'EMAIL_REQUIRED',
+        'A valid email address is strictly required for all contacts',
+      );
+    }
+
     try {
       return await contact.save();
     } catch (error: unknown) {
@@ -899,7 +894,7 @@ export class ContactsService {
         throw new AppException(
           HttpStatus.CONFLICT,
           'DUPLICATE_CONTACT',
-          'Contact with same email or phone already exists in workspace',
+          'Contact with same email already exists in workspace',
         );
       }
 
@@ -909,7 +904,15 @@ export class ContactsService {
 
   private normalizeEmail(email?: string | null): string | null {
     const value = this.cleanString(email);
-    return value ? value.toLowerCase() : null;
+    if (!value || value === '-' || value.toLowerCase() === 'n/a') {
+      return null;
+    }
+    return value.toLowerCase();
+  }
+
+  private isValidEmail(email: string): boolean {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return regex.test(email);
   }
 
   private normalizePhone(phone?: string | null): string | null {

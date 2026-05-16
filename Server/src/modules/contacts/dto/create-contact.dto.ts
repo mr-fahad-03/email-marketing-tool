@@ -3,6 +3,7 @@ import {
   IsArray,
   IsEmail,
   IsEnum,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -29,16 +30,16 @@ export class CreateContactDto {
   @MaxLength(80)
   readonly lastName?: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MaxLength(160)
-  readonly fullName?: string;
+  readonly fullName!: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @IsEmail()
-  readonly email?: string;
+  readonly email!: string;
 
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

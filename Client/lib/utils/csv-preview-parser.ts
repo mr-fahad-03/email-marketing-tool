@@ -127,7 +127,9 @@ function resolveValue(record: Record<string, string>, keys: string[]): string {
   for (const key of keys) {
     const val = record[key.toLowerCase()];
     if (val && val.trim().length > 0) {
-      return val.trim();
+      const trimmed = val.trim();
+      if (trimmed === '-' || trimmed.toLowerCase() === 'n/a') continue;
+      return trimmed;
     }
   }
   return '';
@@ -146,7 +148,7 @@ function classifyRow(
   const company = resolveValue(record, COMPANY_KEYS);
   const category = resolveValue(record, CATEGORY_KEYS);
 
-  const hasContactMethod = !!(email || phone);
+  const hasEmail = !!email;
   const hasIdentifier = !!(name || company || email || phone);
   const isBlank = !hasIdentifier;
 
@@ -156,12 +158,12 @@ function classifyRow(
   if (isBlank) {
     status = 'skipped';
     reason = 'Row is empty — all key fields are blank';
-  } else if (!hasContactMethod) {
+  } else if (!hasEmail) {
     status = 'rejected';
-    reason = 'No email or phone number found — cannot identify contact';
+    reason = 'Email is required — contacts cannot be imported without a valid email address';
   } else if (!name && !company) {
     status = 'missing_name';
-    reason = 'Name is missing — will use email/phone as display name';
+    reason = 'Name is missing — will use email as display name';
   } else {
     status = 'valid';
     reason = 'Ready to import';

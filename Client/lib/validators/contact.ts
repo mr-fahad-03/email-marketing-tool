@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const contactFormSchema = z
   .object({
-    fullName: z.string().optional(),
-    email: z.string().email('Please provide a valid email.').optional().or(z.literal('')),
+    fullName: z.string().min(1, 'Contact Name is required.'),
+    email: z.string().min(1, 'Email is required.').email('Please provide a valid email.'),
     phone: z.string().optional(),
     telephone: z.string().optional(),
     mobile: z.string().optional(),
@@ -19,15 +19,7 @@ export const contactFormSchema = z
     notes: z.string().optional(),
     subscriptionStatus: z.string().optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
-  })
-  .refine(
-    (value) =>
-      Boolean(value.email || value.mobile || value.telephone || value.additionalNumber || value.phone),
-    {
-      message: 'At least one contact method (email or phone) is required.',
-      path: ['email'],
-    },
-  );
+  });
 
 export type ContactFormValues = z.infer<typeof contactFormSchema>;
 
