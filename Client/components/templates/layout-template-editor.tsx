@@ -177,11 +177,14 @@ const HREF_ATTRIBUTE_TYPES = new Set(['mj-image', 'mj-button', 'mj-navbar-link',
 const SECTION_LINK_CHILD_TYPES = new Set(['mj-text', 'mj-image', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
 const INLINE_TEXT_EDITABLE_TYPES = new Set(['mj-text', 'mj-button', 'mj-navbar-link', 'mj-social-element']);
 const RTE_VARIABLES = [
+  '{{firstName}}',
+  '{{lastName}}',
   '{{fullName}}',
   '{{email}}',
   '{{phone}}',
   '{{company}}',
   '{{category}}',
+  '{{labels}}',
   '{{campaign.name}}',
 ];
 

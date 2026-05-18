@@ -42,12 +42,14 @@ const FORMATS = [
 ];
 
 const GUIDE_VARIABLES = [
+  { tag: '{{firstName}}', description: "Contact's first name" },
+  { tag: '{{lastName}}', description: "Contact's last name" },
   { tag: '{{fullName}}', description: "Contact's full name" },
-
   { tag: '{{email}}', description: "Contact's email address" },
   { tag: '{{phone}}', description: "Contact's phone number" },
   { tag: '{{company}}', description: "Contact's company name" },
   { tag: '{{category}}', description: "Contact's assigned category" },
+  { tag: '{{labels}}', description: "Contact's labels (comma-separated)" },
   { tag: '{{campaign.name}}', description: "Name of the current campaign" },
 ];
 
