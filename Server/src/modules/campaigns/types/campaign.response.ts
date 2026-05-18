@@ -47,6 +47,7 @@ export interface CampaignResponse {
     lastWhatsappStatusAt: Date | null;
   };
   editedAt: Date | null;
+  copyNumber: number;
   createdAt?: Date;
   updatedAt?: Date;
 }

@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { updateCampaign } from '@/lib/api/campaigns';
+import { updateCampaign, startCampaign } from '@/lib/api/campaigns';
 import { getAllContacts, getContacts, getContactCategorySummary } from '@/lib/api/contacts';
 import { getSegments } from '@/lib/api/segments';
 import { getSenderAccounts } from '@/lib/api/sender-accounts';
@@ -124,6 +124,7 @@ function FieldError({ message }: { message?: string }) {
 
 export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSuccess }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [categories, setCategories] = useState<ContactCategorySummaryItem[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -213,20 +214,28 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
     [templates, channel],
   );
 
-  const handleSubmit = form.handleSubmit(async (values) => {
+  const handleSaveAndOrLaunch = async (shouldLaunch: boolean) => {
     if (!campaign) return;
 
-    setIsSubmitting(true);
+    const isValid = await form.trigger();
+    if (!isValid) return;
+
+    const values = form.getValues();
+
+    if (shouldLaunch) {
+      setIsLaunching(true);
+    } else {
+      setIsSubmitting(true);
+    }
+
     try {
       let resolvedContactIds = values.contactIds;
 
-      // Resolve category → contact IDs at launch time
       if (values.targetMode === 'category' && values.categoryName) {
         const categoryContacts = await getAllContacts({ category: values.categoryName });
         resolvedContactIds = categoryContacts.map((contact) => contact.id);
         if (resolvedContactIds.length === 0) {
           toast.error(`No contacts found in category "${values.categoryName}".`);
-          setIsSubmitting(false);
           return;
         }
       }
@@ -235,9 +244,10 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
         ...values,
         contactIds: resolvedContactIds,
         targetMode: values.targetMode === 'category' ? 'contacts' : values.targetMode,
+        dailyCap: values.dailyCap ? Number(values.dailyCap) : undefined,
       } as CampaignBuilderValues;
 
-      if (!hasCampaignChanges(campaign, payload)) {
+      if (!shouldLaunch && !hasCampaignChanges(campaign, payload)) {
         toast.info('No changes to save.');
         onOpenChange(false);
         return;
@@ -245,15 +255,22 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
 
       const updated = await updateCampaign(campaign.id, payload);
 
-      toast.success(`Campaign "${updated.name}" updated successfully.`);
+      if (shouldLaunch) {
+        await startCampaign(campaign.id);
+        toast.success(`Campaign "${updated.name}" launched successfully!`);
+      } else {
+        toast.success(`Campaign "${updated.name}" updated successfully.`);
+      }
+
       onOpenChange(false);
       onSuccess();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
+      setIsLaunching(false);
     }
-  });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -266,7 +283,7 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
           </DialogDescription>
         </DialogHeader>
 
-        <form className="space-y-5" onSubmit={handleSubmit}>
+        <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
           {/* Campaign name */}
           <div className="space-y-1.5">
             <Label htmlFor="er-name">Campaign Name</Label>
@@ -590,13 +607,38 @@ export function CampaignEditRerunDialog({ open, campaign, onOpenChange, onSucces
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isLaunching}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || isLoading}>
-              {isSubmitting ? 'Saving...' : 'Save Changes'}
-            </Button>
+            {campaign?.status === 'draft' ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleSaveAndOrLaunch(false)}
+                  disabled={isSubmitting || isLaunching || isLoading}
+                >
+                  {isSubmitting ? 'Saving...' : 'Save Draft'}
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-black text-white hover:bg-zinc-800"
+                  onClick={() => void handleSaveAndOrLaunch(true)}
+                  disabled={isSubmitting || isLaunching || isLoading}
+                >
+                  {isLaunching ? 'Launching...' : 'Save & Launch'}
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => void handleSaveAndOrLaunch(false)}
+                disabled={isSubmitting || isLaunching || isLoading}
+              >
+                {isSubmitting ? 'Saving...' : 'Save Changes'}
+              </Button>
+            )}
           </div>
         </form>
       </DialogContent>

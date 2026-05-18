@@ -106,4 +106,12 @@ export class CampaignsController {
   ): Promise<{ deleted: true; id: string }> {
     return this.campaignsService.remove(id, authUser);
   }
+
+  @Post(':id/duplicate')
+  duplicate(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() authUser: AuthUser,
+  ): Promise<CampaignResponse> {
+    return this.campaignsService.duplicate(id, authUser);
+  }
 }

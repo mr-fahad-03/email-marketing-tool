@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  Copy,
   Mail,
   MessageSquare,
   MousePointerClick,
@@ -23,7 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getCampaigns } from '@/lib/api/campaigns';
+import { getCampaigns, duplicateCampaign, pauseCampaign, resumeCampaign } from '@/lib/api/campaigns';
 import { getTemplates } from '@/lib/api/templates';
 import { HttpClientError } from '@/lib/api/errors';
 import type { Campaign } from '@/lib/types/campaign';
@@ -45,6 +46,7 @@ function formatDate(value?: string | null): string {
   }).format(date);
 }
 
+// ─── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, { icon: React.ReactNode; label: string; cls: string }> = {
     running: {
@@ -88,15 +90,8 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
-function StatPill({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
+// ─── Stat pill ─────────────────────────────────────────────────────────────────
+function StatPill({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return (
     <div className="flex flex-col items-center gap-0.5 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 min-w-[60px]">
       <div className="text-zinc-400">{icon}</div>
@@ -106,16 +101,55 @@ function StatPill({
   );
 }
 
+// ─── Campaign card ─────────────────────────────────────────────────────────────
 interface CampaignCardProps {
   campaign: Campaign;
   templateMap: Map<string, MarketingTemplate>;
   onEdit: (campaign: Campaign) => void;
+  onDuplicate: (campaign: Campaign) => void;
+  isDuplicating: boolean;
+  onSuccess: () => void;
 }
 
-function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
+function CampaignCard({
+  campaign,
+  templateMap,
+  onEdit,
+  onDuplicate,
+  isDuplicating,
+  onSuccess,
+}: CampaignCardProps) {
   const template = campaign.templateId ? templateMap.get(campaign.templateId) : undefined;
   const stats = campaign.stats ?? {};
+  const [actionLoading, setActionLoading] = useState(false);
 
+  const handlePause = async () => {
+    setActionLoading(true);
+    try {
+      await pauseCampaign(campaign.id);
+      toast.success('Campaign sending stopped successfully.');
+      onSuccess();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setActionLoading(true);
+    try {
+      await resumeCampaign(campaign.id);
+      toast.success('Campaign sending resumed successfully.');
+      onSuccess();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Audience summary
   function renderAudience() {
     if (campaign.segmentId) {
       return (
@@ -130,8 +164,8 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
         <div className="flex items-center gap-1.5 text-xs text-zinc-500">
           <Users className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
           <span>
-            <strong className="text-zinc-700">{campaign.contactIds.length}</strong> direct contact
-            {campaign.contactIds.length !== 1 ? 's' : ''}
+            <strong className="text-zinc-700">{campaign.contactIds.length}</strong> direct
+            contact{campaign.contactIds.length !== 1 ? 's' : ''}
           </span>
         </div>
       );
@@ -144,10 +178,52 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
     );
   }
 
+  const total = stats.totalRecipients || campaign.contactIds.length || 0;
+  const sent = stats.sentRecipients ?? 0;
+  const failed = stats.failedRecipients ?? 0;
+  const skipped = stats.skippedRecipients ?? 0;
+  const processed = sent + failed + skipped;
+  const remaining = Math.max(0, total - processed);
+
+  const isCompleted = campaign.status === 'completed' || processed >= total;
+  const percent = isCompleted ? 100 : (total > 0 ? Math.min(99, Math.round((processed / total) * 100)) : 0);
+
+  // Progress Bar Helper
+  const renderProgress = () => {
+    if (campaign.status === 'draft') {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 rounded-lg border border-zinc-150 bg-zinc-50/50 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className={`text-xs font-semibold ${isCompleted ? 'text-emerald-700' : 'text-zinc-700'}`}>
+            {isCompleted ? 'Campaign Completed Successfully' : 'Campaign Progress'}
+          </span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded ${isCompleted ? 'text-emerald-700 bg-emerald-100' : 'text-emerald-700 bg-emerald-50'}`}>
+            {percent}% Complete
+          </span>
+        </div>
+
+        <div className="h-2 w-full rounded-full bg-zinc-100 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ease-out ${
+              isCompleted 
+                ? 'bg-emerald-600' 
+                : 'bg-gradient-to-r from-emerald-500 to-teal-500'
+            }`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Card className="overflow-hidden border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md">
       <CardHeader className="border-b border-zinc-100 bg-zinc-50 px-5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Left: name + badges */}
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h3 className="truncate text-sm font-semibold text-zinc-900">{campaign.name}</h3>
             <Badge variant={campaign.channel === 'email' ? 'neutral' : 'warning'}>
@@ -162,6 +238,15 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               )}
             </Badge>
             <StatusBadge status={campaign.status} />
+            {campaign.copyNumber === 0 || !campaign.copyNumber ? (
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800 font-medium">
+                Original
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-800 font-medium">
+                Copy {campaign.copyNumber}
+              </Badge>
+            )}
             {campaign.editedAt ? (
               <Badge
                 variant="outline"
@@ -171,23 +256,83 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               </Badge>
             ) : null}
           </div>
-          <Button
-            size="sm"
-            className="gap-1.5 border border-zinc-900 bg-black text-white hover:bg-black hover:text-white"
-            onClick={() => onEdit(campaign)}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </Button>
+
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-2">
+            {campaign.status === 'draft' ? (
+              <Button
+                size="sm"
+                className="gap-1.5 bg-black text-white hover:bg-zinc-800"
+                onClick={() => onEdit(campaign)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Button>
+            ) : campaign.status === 'running' || campaign.status === 'scheduled' ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="gap-1.5 bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm transition-all"
+                onClick={handlePause}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5" />
+                )}
+                Stop
+              </Button>
+            ) : campaign.status === 'paused' ? (
+              <>
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all"
+                  onClick={handleResume}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  Resume
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => onDuplicate(campaign)}
+                  disabled={isDuplicating || actionLoading}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Duplicate
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                onClick={() => onDuplicate(campaign)}
+                disabled={isDuplicating}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {isDuplicating ? 'Duplicating...' : 'Duplicate'}
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
 
       <CardContent className="px-5 py-4">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          {/* Details */}
           <div className="flex-1 space-y-3">
+            {/* Audience */}
             {renderAudience()}
 
-            {/* Template — always fetched at latest version */}
+            {/* Template — always latest version */}
             {template ? (
               <div className="flex items-start gap-1.5 text-xs text-zinc-500">
                 <Tag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-400" />
@@ -197,18 +342,19 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
                   {template.subject && (
                     <p className="mt-0.5 line-clamp-1 text-zinc-400">{template.subject}</p>
                   )}
-                  <p className="mt-0.5 italic text-zinc-400 text-[10px]">
-                    Always reflects the latest edited version
+                  <p className="mt-0.5 italic text-zinc-400">
+                    (Always reflects the latest template version automatically)
                   </p>
                 </div>
               </div>
             ) : campaign.templateId ? (
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <Tag className="h-3.5 w-3.5 shrink-0" />
+              <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <Tag className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
                 Template ID: {campaign.templateId.slice(0, 12)}…
               </div>
             ) : null}
 
+            {/* Senders */}
             {campaign.senderAccountIds.length > 0 && (
               <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                 <Send className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
@@ -219,6 +365,7 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               </div>
             )}
 
+            {/* Schedule info */}
             {campaign.startAt && (
               <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                 <Clock className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
@@ -227,20 +374,24 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               </div>
             )}
 
+            {/* Sending window */}
             {(campaign.sendingWindowStart || campaign.sendingWindowEnd) && (
               <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                 <Clock className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                Window: {campaign.sendingWindowStart ?? '-'} →{' '}
-                {campaign.sendingWindowEnd ?? '-'}
+                Window: {campaign.sendingWindowStart ?? '-'} → {campaign.sendingWindowEnd ?? '-'}
               </div>
             )}
 
+            {/* Timestamps */}
             <div className="flex flex-wrap gap-3 text-[11px] text-zinc-400">
               <span>Created: {formatDate(campaign.createdAt)}</span>
               {campaign.editedAt && campaign.updatedAt && (
                 <span>Updated: {formatDate(campaign.updatedAt)}</span>
               )}
             </div>
+
+            {/* Premium Sending Progress Bar */}
+            {renderProgress()}
           </div>
 
           {/* Stats */}
@@ -248,12 +399,17 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
             <StatPill
               icon={<Users className="h-3.5 w-3.5" />}
               label="Recipients"
-              value={stats.totalRecipients ?? 0}
+              value={total}
             />
             <StatPill
               icon={<Send className="h-3.5 w-3.5" />}
               label="Sent"
-              value={stats.sentRecipients ?? 0}
+              value={sent}
+            />
+            <StatPill
+              icon={<Clock className="h-3.5 w-3.5" />}
+              label="Remaining"
+              value={remaining}
             />
             <StatPill
               icon={<BarChart2 className="h-3.5 w-3.5" />}
@@ -272,6 +428,7 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
   );
 }
 
+// ─── Skeleton loader ────────────────────────────────────────────────────────────
 function LoadingSkeleton() {
   return (
     <div className="space-y-3">
@@ -304,6 +461,7 @@ function LoadingSkeleton() {
   );
 }
 
+// ─── Page ───────────────────────────────────────────────────────────────────────
 export default function SegmentsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [templateMap, setTemplateMap] = useState<Map<string, MarketingTemplate>>(new Map());
@@ -312,6 +470,21 @@ export default function SegmentsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  const handleDuplicate = async (campaign: Campaign) => {
+    setDuplicatingId(campaign.id);
+    try {
+      const duplicated = await duplicateCampaign(campaign.id);
+      toast.success(`Campaign duplicated successfully as "${duplicated.name}"!`);
+      await load(page);
+      setEditingCampaign(duplicated);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
 
   const load = useCallback(async (pageNum: number) => {
     setLoading(true);
@@ -344,8 +517,30 @@ export default function SegmentsPage() {
     void load(page);
   }, [load, page]);
 
+  // Intelligent Polling Hook: Runs every 2 seconds when any campaign is running or scheduled
+  useEffect(() => {
+    const hasActiveCampaign = campaigns.some(
+      (c) => c.status === 'running' || c.status === 'scheduled'
+    );
+    if (!hasActiveCampaign) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getCampaigns({ page, limit: 10 });
+        setCampaigns(res.items);
+        setTotal(res.pagination.total);
+        setTotalPages(res.pagination.totalPages);
+      } catch (err) {
+        console.error('Error polling running campaigns:', err);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [campaigns, page]);
+
   return (
     <section className="space-y-6">
+      {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-zinc-900">Campaign Segments</h2>
@@ -366,6 +561,7 @@ export default function SegmentsPage() {
         </Button>
       </div>
 
+      {/* Summary bar */}
       {!loading && (
         <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm text-zinc-600">
           <BarChart2 className="h-4 w-4 shrink-0 text-zinc-400" />
@@ -380,6 +576,7 @@ export default function SegmentsPage() {
         </div>
       )}
 
+      {/* Campaign list */}
       {loading ? (
         <LoadingSkeleton />
       ) : campaigns.length === 0 ? (
@@ -401,11 +598,15 @@ export default function SegmentsPage() {
               campaign={campaign}
               templateMap={templateMap}
               onEdit={setEditingCampaign}
+              onDuplicate={handleDuplicate}
+              isDuplicating={duplicatingId === campaign.id}
+              onSuccess={() => void load(page)}
             />
           ))}
         </div>
       )}
 
+      {/* Pagination */}
       {!loading && totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-zinc-200 pt-4">
           <p className="text-xs text-zinc-500">
@@ -432,6 +633,7 @@ export default function SegmentsPage() {
         </div>
       )}
 
+      {/* Edit & Re-run Dialog */}
       <CampaignEditRerunDialog
         open={Boolean(editingCampaign)}
         campaign={editingCampaign}

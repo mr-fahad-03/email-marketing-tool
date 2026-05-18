@@ -130,8 +130,9 @@ function normalizeCampaign(input: unknown): Campaign {
     startAt: getString(record, ['startAt']) ?? null,
     sendingWindowStart: getString(record, ['sendingWindowStart']) ?? null,
     sendingWindowEnd: getString(record, ['sendingWindowEnd']) ?? null,
-    dailyCap: getNumber(record, ['dailyCap']) ?? null,
+        dailyCap: getNumber(record, ['dailyCap']) ?? null,
     editedAt: getString(record, ['editedAt']) ?? null,
+    copyNumber: getNumber(record, ['copyNumber']) ?? 0,
     createdAt: getString(record, ['createdAt']),
     updatedAt: getString(record, ['updatedAt']),
     stats: {
@@ -325,4 +326,31 @@ export async function getCampaignContacts(
       totalPages: getNumber(getRecord(record.pagination) ?? {}, ['totalPages']) ?? 1,
     },
   };
+}
+
+export async function duplicateCampaign(campaignId: string): Promise<Campaign> {
+  const payload = await apiRequest<unknown, Record<string, unknown>>({
+    method: 'POST',
+    url: '/campaigns/' + campaignId + '/duplicate',
+  });
+
+  return normalizeCampaign(payload);
+}
+
+export async function pauseCampaign(campaignId: string): Promise<Campaign> {
+  const payload = await apiRequest<unknown, Record<string, unknown>>({
+    method: 'POST',
+    url: '/campaigns/' + campaignId + '/pause',
+  });
+
+  return normalizeCampaign(payload);
+}
+
+export async function resumeCampaign(campaignId: string): Promise<Campaign> {
+  const payload = await apiRequest<unknown, Record<string, unknown>>({
+    method: 'POST',
+    url: '/campaigns/' + campaignId + '/resume',
+  });
+
+  return normalizeCampaign(payload);
 }

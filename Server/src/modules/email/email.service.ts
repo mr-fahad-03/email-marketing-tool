@@ -117,6 +117,21 @@ export class EmailService {
       return { type: 'noop' };
     }
 
+    if (context.campaign.status === CampaignStatus.PAUSED) {
+      await this.campaignRecipientModel
+        .updateOne(
+          { _id: context.recipient._id },
+          {
+            $set: {
+              status: CampaignRecipientStatus.QUEUED,
+              failureReason: '',
+            },
+          },
+        )
+        .exec();
+      return { type: 'noop' };
+    }
+
     if (
       context.recipient.status === CampaignRecipientStatus.SENT ||
       context.recipient.status === CampaignRecipientStatus.CANCELLED

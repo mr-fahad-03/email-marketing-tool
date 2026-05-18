@@ -116,9 +116,7 @@ export class CampaignSchedulerProcessor extends WorkerHost {
 
     const recipients = await this.resolveAudienceRecipients(campaign);
     if (!recipients.length) {
-      campaign.stats.totalRecipients = 0;
       campaign.stats.queuedRecipients = 0;
-      campaign.stats.skippedRecipients = 0;
       campaign.status = CampaignStatus.COMPLETED;
       await campaign.save();
       return;
@@ -234,7 +232,7 @@ export class CampaignSchedulerProcessor extends WorkerHost {
     );
 
     campaign.status = CampaignStatus.RUNNING;
-    campaign.stats.totalRecipients = recipients.length;
+    campaign.stats.totalRecipients = campaign.stats.totalRecipients || recipients.length;
     campaign.stats.queuedRecipients = distribution.assignments.length;
     campaign.stats.skippedRecipients = distribution.remainingRecipientCount;
     campaign.stats.lastStartedAt = campaign.stats.lastStartedAt ?? now;
@@ -312,7 +310,7 @@ export class CampaignSchedulerProcessor extends WorkerHost {
       return [];
     }
 
-    const contacts = await this.contactModel
+        const contacts = await this.contactModel
       .find({
         workspaceId: campaign.workspaceId,
         _id: { $in: Array.from(contactIdSet).map((id) => this.toObjectId(id)) },
@@ -321,9 +319,31 @@ export class CampaignSchedulerProcessor extends WorkerHost {
       .lean()
       .exec();
 
+        const existingRecipients = await this.campaignRecipientModel
+      .find({
+        campaignId: (campaign as any)._id,
+        status: {
+          $in: [
+            CampaignRecipientStatus.SENT,
+            CampaignRecipientStatus.FAILED,
+            CampaignRecipientStatus.SKIPPED,
+            CampaignRecipientStatus.CANCELLED,
+          ],
+        },
+      })
+      .select('contactId')
+      .lean()
+      .exec();
+
+    const excludedContactIds = new Set(existingRecipients.map((r) => String(r.contactId)));
+
     const recipients: DistributionRecipientInput[] = [];
 
     for (const contact of contacts) {
+      if (excludedContactIds.has(String(contact._id))) {
+        continue;
+      }
+
       const address =
         campaign.channel === 'email'
           ? (contact.email ?? '').trim().toLowerCase()

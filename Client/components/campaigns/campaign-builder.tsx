@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createCampaign, deleteCampaign, getCampaignContacts, getCampaigns, startCampaign } from '@/lib/api/campaigns';
+import { createCampaign, deleteCampaign, getCampaignContacts, getCampaigns, startCampaign, duplicateCampaign, updateCampaign } from '@/lib/api/campaigns';
+import { Copy } from 'lucide-react';
 import { bulkAddLabelToContacts, updateContact } from '@/lib/api/contacts';
 import { getAllContacts, getContacts, getContactCategorySummary } from '@/lib/api/contacts';
 import type { ContactCategorySummaryItem } from '@/lib/types/contact';
@@ -165,6 +166,8 @@ export function CampaignBuilder() {
   const [isAudienceSaving, setIsAudienceSaving] = useState(false);
   const [lastLaunchedCampaignId, setLastLaunchedCampaignId] = useState<string | null>(null);
   const [deletingCampaignId, setDeletingCampaignId] = useState<string | null>(null);
+  const [duplicatingCampaignId, setDuplicatingCampaignId] = useState<string | null>(null);
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [categories, setCategories] = useState<ContactCategorySummaryItem[]>([]);
@@ -417,8 +420,15 @@ export function CampaignBuilder() {
         targetMode: values.targetMode === 'category' ? 'contacts' : values.targetMode,
       } as CampaignBuilderValues;
 
-      const campaign = await createCampaign(payload);
-      await startCampaign(campaign.id);
+      let campaign;
+      if (activeCampaignId) {
+        campaign = await updateCampaign(activeCampaignId, payload);
+        await startCampaign(activeCampaignId);
+        setActiveCampaignId(null);
+      } else {
+        campaign = await createCampaign(payload);
+        await startCampaign(campaign.id);
+      }
 
       setLastLaunchedCampaignId(campaign.id);
       toast.success(`Campaign "${campaign.name}" launched.`);
@@ -452,6 +462,42 @@ export function CampaignBuilder() {
       toast.error(getErrorMessage(error));
     } finally {
       setDeletingCampaignId(null);
+    }
+  };
+
+  const handleDuplicateCampaign = async (campaign: Campaign) => {
+    setDuplicatingCampaignId(campaign.id);
+    try {
+      const duplicated = await duplicateCampaign(campaign.id);
+      setActiveCampaignId(duplicated.id);
+      toast.success(`Campaign duplicated successfully! Loading into builder...`);
+      await loadRecentCampaigns();
+      
+      form.reset({
+        name: duplicated.name,
+        description: '',
+        channel: duplicated.channel,
+        targetMode: duplicated.segmentId ? 'segment' : 'contacts',
+        segmentId: duplicated.segmentId ?? '',
+        contactIds: duplicated.contactIds ?? [],
+        senderAccountIds: duplicated.senderAccountIds ?? [],
+        templateId: duplicated.templateId ?? '',
+        scheduleMode: duplicated.startAt ? 'scheduled' : 'now',
+        timezone: duplicated.timezone || 'UTC',
+        startAt: duplicated.startAt ? new Date(duplicated.startAt).toISOString().slice(0, 16) : '',
+        sendingWindowStart: duplicated.sendingWindowStart ?? '',
+        sendingWindowEnd: duplicated.sendingWindowEnd ?? '',
+        dailyCap: duplicated.dailyCap ?? undefined,
+        categoryName: '',
+      });
+      
+      setCurrentStep(0);
+      setLastLaunchedCampaignId(null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDuplicatingCampaignId(null);
     }
   };
 
@@ -1034,18 +1080,33 @@ export function CampaignBuilder() {
                       <span>{formatCampaignTimestamp(campaign.updatedAt ?? campaign.createdAt)}</span>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    className="border-red-600 text-white hover:bg-red-600/90"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleDeleteCampaign(campaign);
-                    }}
-                    disabled={deletingCampaignId === campaign.id}
-                  >
-                    {deletingCampaignId === campaign.id ? 'Deleting...' : 'Delete'}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-zinc-700 text-zinc-200 hover:bg-zinc-800 gap-1.5"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDuplicateCampaign(campaign);
+                      }}
+                      disabled={duplicatingCampaignId === campaign.id}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {duplicatingCampaignId === campaign.id ? 'Duplicating...' : 'Duplicate'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="border-red-600 text-white hover:bg-red-600/90"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteCampaign(campaign);
+                      }}
+                      disabled={deletingCampaignId === campaign.id}
+                    >
+                      {deletingCampaignId === campaign.id ? 'Deleting...' : 'Delete'}
+                    </Button>
+                  </div>
                 </div>
               ))
           )}

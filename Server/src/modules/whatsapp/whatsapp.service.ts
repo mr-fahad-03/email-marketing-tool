@@ -101,7 +101,7 @@ export class WhatsappService {
   ): Promise<WhatsappSendProcessOutcome> {
     const context = await this.loadContext(input);
 
-    if (
+        if (
       context.campaign.status === CampaignStatus.CANCELLED ||
       context.campaign.status === CampaignStatus.COMPLETED
     ) {
@@ -114,6 +114,21 @@ export class WhatsappService {
         attempt: ctx.attempt,
         maxAttempts: ctx.maxAttempts,
       });
+      return { type: 'noop' };
+    }
+
+    if (context.campaign.status === CampaignStatus.PAUSED) {
+      await this.campaignRecipientModel
+        .updateOne(
+          { _id: context.recipient._id },
+          {
+            $set: {
+              status: CampaignRecipientStatus.QUEUED,
+              failureReason: '',
+            },
+          },
+        )
+        .exec();
       return { type: 'noop' };
     }
 

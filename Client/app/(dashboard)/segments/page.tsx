@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  Copy,
   Mail,
   MessageSquare,
   MousePointerClick,
@@ -23,7 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getCampaigns } from '@/lib/api/campaigns';
+import { getCampaigns, duplicateCampaign, pauseCampaign, resumeCampaign } from '@/lib/api/campaigns';
 import { getTemplates } from '@/lib/api/templates';
 import { HttpClientError } from '@/lib/api/errors';
 import type { Campaign } from '@/lib/types/campaign';
@@ -105,11 +106,48 @@ interface CampaignCardProps {
   campaign: Campaign;
   templateMap: Map<string, MarketingTemplate>;
   onEdit: (campaign: Campaign) => void;
+  onDuplicate: (campaign: Campaign) => void;
+  isDuplicating: boolean;
+  onSuccess: () => void;
 }
 
-function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
+function CampaignCard({
+  campaign,
+  templateMap,
+  onEdit,
+  onDuplicate,
+  isDuplicating,
+  onSuccess,
+}: CampaignCardProps) {
   const template = campaign.templateId ? templateMap.get(campaign.templateId) : undefined;
   const stats = campaign.stats ?? {};
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const handlePause = async () => {
+    setActionLoading(true);
+    try {
+      await pauseCampaign(campaign.id);
+      toast.success('Campaign sending stopped successfully.');
+      onSuccess();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setActionLoading(true);
+    try {
+      await resumeCampaign(campaign.id);
+      toast.success('Campaign sending resumed successfully.');
+      onSuccess();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // Audience summary
   function renderAudience() {
@@ -140,6 +178,47 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
     );
   }
 
+  const total = stats.totalRecipients || campaign.contactIds.length || 0;
+  const sent = stats.sentRecipients ?? 0;
+  const failed = stats.failedRecipients ?? 0;
+  const skipped = stats.skippedRecipients ?? 0;
+  const processed = sent + failed + skipped;
+  const remaining = Math.max(0, total - processed);
+  
+  const isCompleted = campaign.status === 'completed' || processed >= total;
+  const percent = isCompleted ? 100 : (total > 0 ? Math.min(99, Math.round((processed / total) * 100)) : 0);
+
+  // Progress Bar Helper
+  const renderProgress = () => {
+    if (campaign.status === 'draft') {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 rounded-lg border border-zinc-150 bg-zinc-50/50 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className={`text-xs font-semibold ${isCompleted ? 'text-emerald-700' : 'text-zinc-700'}`}>
+            {isCompleted ? 'Campaign Completed Successfully' : 'Campaign Progress'}
+          </span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded ${isCompleted ? 'text-emerald-700 bg-emerald-100' : 'text-emerald-700 bg-emerald-50'}`}>
+            {percent}% Complete
+          </span>
+        </div>
+
+        <div className="h-2 w-full rounded-full bg-zinc-100 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ease-out ${
+              isCompleted 
+                ? 'bg-emerald-600' 
+                : 'bg-gradient-to-r from-emerald-500 to-teal-500'
+            }`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Card className="overflow-hidden border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md">
       <CardHeader className="border-b border-zinc-100 bg-zinc-50 px-5 py-3">
@@ -159,6 +238,15 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
               )}
             </Badge>
             <StatusBadge status={campaign.status} />
+            {campaign.copyNumber === 0 || !campaign.copyNumber ? (
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800 font-medium">
+                Original
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-800 font-medium">
+                Copy {campaign.copyNumber}
+              </Badge>
+            )}
             {campaign.editedAt ? (
               <Badge
                 variant="outline"
@@ -169,15 +257,71 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
             ) : null}
           </div>
 
-          {/* Right: re-run button */}
-          <Button
-            size="sm"
-            className="gap-1.5 bg-black text-white hover:bg-zinc-800"
-            onClick={() => onEdit(campaign)}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </Button>
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-2">
+            {campaign.status === 'draft' ? (
+              <Button
+                size="sm"
+                className="gap-1.5 bg-black text-white hover:bg-zinc-800"
+                onClick={() => onEdit(campaign)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Button>
+            ) : campaign.status === 'running' || campaign.status === 'scheduled' ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="gap-1.5 bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm transition-all"
+                onClick={handlePause}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5" />
+                )}
+                Stop
+              </Button>
+            ) : campaign.status === 'paused' ? (
+              <>
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-all"
+                  onClick={handleResume}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  Resume
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => onDuplicate(campaign)}
+                  disabled={isDuplicating || actionLoading}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Duplicate
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                onClick={() => onDuplicate(campaign)}
+                disabled={isDuplicating}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {isDuplicating ? 'Duplicating...' : 'Duplicate'}
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
 
@@ -245,6 +389,9 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
                 <span>Updated: {formatDate(campaign.updatedAt)}</span>
               )}
             </div>
+
+            {/* Premium Sending Progress Bar */}
+            {renderProgress()}
           </div>
 
           {/* Stats */}
@@ -252,12 +399,17 @@ function CampaignCard({ campaign, templateMap, onEdit }: CampaignCardProps) {
             <StatPill
               icon={<Users className="h-3.5 w-3.5" />}
               label="Recipients"
-              value={stats.totalRecipients ?? 0}
+              value={total}
             />
             <StatPill
               icon={<Send className="h-3.5 w-3.5" />}
               label="Sent"
-              value={stats.sentRecipients ?? 0}
+              value={sent}
+            />
+            <StatPill
+              icon={<Clock className="h-3.5 w-3.5" />}
+              label="Remaining"
+              value={remaining}
             />
             <StatPill
               icon={<BarChart2 className="h-3.5 w-3.5" />}
@@ -318,6 +470,21 @@ export default function SegmentsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  const handleDuplicate = async (campaign: Campaign) => {
+    setDuplicatingId(campaign.id);
+    try {
+      const duplicated = await duplicateCampaign(campaign.id);
+      toast.success(`Campaign duplicated successfully as "${duplicated.name}"!`);
+      await load(page);
+      setEditingCampaign(duplicated);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
 
   const load = useCallback(async (pageNum: number) => {
     setLoading(true);
@@ -349,6 +516,27 @@ export default function SegmentsPage() {
   useEffect(() => {
     void load(page);
   }, [load, page]);
+
+  // Intelligent Polling Hook: Runs every 2 seconds when any campaign is running or scheduled
+  useEffect(() => {
+    const hasActiveCampaign = campaigns.some(
+      (c) => c.status === 'running' || c.status === 'scheduled'
+    );
+    if (!hasActiveCampaign) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getCampaigns({ page, limit: 10 });
+        setCampaigns(res.items);
+        setTotal(res.pagination.total);
+        setTotalPages(res.pagination.totalPages);
+      } catch (err) {
+        console.error('Error polling running campaigns:', err);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [campaigns, page]);
 
   return (
     <section className="space-y-6">
@@ -410,6 +598,9 @@ export default function SegmentsPage() {
               campaign={campaign}
               templateMap={templateMap}
               onEdit={setEditingCampaign}
+              onDuplicate={handleDuplicate}
+              isDuplicating={duplicatingId === campaign.id}
+              onSuccess={() => void load(page)}
             />
           ))}
         </div>

@@ -220,6 +220,15 @@ export class CampaignsService {
 
   async update(id: string, dto: UpdateCampaignDto, authUser: AuthUser): Promise<CampaignResponse> {
     const campaign = await this.findOwnedCampaign(id, authUser);
+
+    if (campaign.status !== CampaignStatus.DRAFT) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'CAMPAIGN_LOCKED',
+        'Only campaigns in DRAFT status can be directly edited. Please duplicate the campaign instead.',
+      );
+    }
+
     const workspaceId = campaign.workspaceId.toString();
     let hasEdits = false;
 
@@ -344,6 +353,62 @@ export class CampaignsService {
       deleted: true,
       id,
     };
+  }
+
+  async duplicate(id: string, authUser: AuthUser): Promise<CampaignResponse> {
+    const original = await this.findOwnedCampaign(id, authUser);
+
+    const copyNumber = (original.copyNumber ?? 0) + 1;
+    const cleanName = original.name.replace(/ - Copy( \d+)?$/, '');
+    const nameSuffix = ` - Copy ${copyNumber}`;
+
+    const duplicated = await this.campaignModel.create({
+      workspaceId: original.workspaceId,
+      name: `${cleanName}${nameSuffix}`,
+      channel: original.channel,
+      senderAccountIds: original.senderAccountIds,
+      segmentId: original.segmentId,
+      contactIds: original.contactIds,
+      templateId: original.templateId,
+      status: CampaignStatus.DRAFT,
+      timezone: original.timezone ?? 'UTC',
+      startAt: null,
+      sendingWindowStart: original.sendingWindowStart ?? null,
+      sendingWindowEnd: original.sendingWindowEnd ?? null,
+      dailyCap: original.dailyCap ?? null,
+      trackOpens: original.trackOpens ?? true,
+      trackClicks: original.trackClicks ?? true,
+      randomDelayMinSeconds: original.randomDelayMinSeconds ?? 0,
+      randomDelayMaxSeconds: original.randomDelayMaxSeconds ?? 0,
+      settings: {
+        distributionStrategy:
+          original.settings?.distributionStrategy ?? CampaignDistributionStrategy.ROUND_ROBIN,
+      },
+      stats: {
+        totalRecipients: 0,
+        queuedRecipients: 0,
+        skippedRecipients: 0,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        openCount: 0,
+        uniqueOpenCount: 0,
+        clickCount: 0,
+        uniqueClickCount: 0,
+        whatsappSentCount: 0,
+        whatsappDeliveredCount: 0,
+        whatsappReadCount: 0,
+        whatsappFailedCount: 0,
+        lastStartedAt: null,
+        lastOpenedAt: null,
+        lastClickedAt: null,
+        lastWhatsappStatusAt: null,
+      },
+      trackingBaseUrl: null,
+      editedAt: null,
+      copyNumber,
+    });
+
+    return this.toResponse(duplicated);
   }
 
   async start(id: string, authUser: AuthUser, trackingBaseUrl: string): Promise<CampaignResponse> {
@@ -771,7 +836,7 @@ export class CampaignsService {
       },
       trackingBaseUrl: campaign.trackingBaseUrl ?? null,
       stats: {
-        totalRecipients: campaign.stats?.totalRecipients ?? 0,
+        totalRecipients: campaign.stats?.totalRecipients || campaign.contactIds.length || 0,
         queuedRecipients: campaign.stats?.queuedRecipients ?? 0,
         skippedRecipients: campaign.stats?.skippedRecipients ?? 0,
         sentRecipients: campaign.stats?.sentRecipients ?? 0,
@@ -790,6 +855,7 @@ export class CampaignsService {
         lastWhatsappStatusAt: campaign.stats?.lastWhatsappStatusAt ?? null,
       },
       editedAt: campaign.editedAt ?? null,
+      copyNumber: campaign.copyNumber ?? 0,
       createdAt: campaign.createdAt,
       updatedAt: campaign.updatedAt,
     };

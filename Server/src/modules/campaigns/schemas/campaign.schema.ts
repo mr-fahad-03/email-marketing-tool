@@ -138,6 +138,9 @@ export class Campaign {
   @Prop({ type: Date, default: null })
   editedAt!: Date | null;
 
+  @Prop({ type: Number, default: 0, min: 0 })
+  copyNumber!: number;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
