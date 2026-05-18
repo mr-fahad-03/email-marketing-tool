@@ -517,25 +517,41 @@ export default function SegmentsPage() {
     void load(page);
   }, [load, page]);
 
-  // Intelligent Polling Hook: Runs every 2 seconds when any campaign is running or scheduled
+  // Congestion-Free Intelligent Polling Hook: Schedule next poll 3s AFTER previous completes
   useEffect(() => {
     const hasActiveCampaign = campaigns.some(
       (c) => c.status === 'running' || c.status === 'scheduled'
     );
     if (!hasActiveCampaign) return;
 
-    const interval = setInterval(async () => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isMounted = true;
+
+    const poll = async () => {
       try {
         const res = await getCampaigns({ page, limit: 10 });
-        setCampaigns(res.items);
-        setTotal(res.pagination.total);
-        setTotalPages(res.pagination.totalPages);
+        if (isMounted) {
+          setCampaigns(res.items);
+          setTotal(res.pagination.total);
+          setTotalPages(res.pagination.totalPages);
+        }
       } catch (err) {
         console.error('Error polling running campaigns:', err);
+      } finally {
+        if (isMounted) {
+          timeoutId = setTimeout(poll, 3000);
+        }
       }
-    }, 2000);
+    };
 
-    return () => clearInterval(interval);
+    timeoutId = setTimeout(poll, 3000);
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [campaigns, page]);
 
   return (

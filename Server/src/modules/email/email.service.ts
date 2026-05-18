@@ -169,9 +169,12 @@ export class EmailService {
       return { type: 'suppressed' };
     }
 
-    await this.campaignRecipientModel
+    const updateResult = await this.campaignRecipientModel
       .updateOne(
-        { _id: context.recipient._id },
+        {
+          _id: context.recipient._id,
+          status: { $in: [CampaignRecipientStatus.QUEUED, CampaignRecipientStatus.SENDING] }
+        },
         {
           $set: {
             status: CampaignRecipientStatus.SENDING,
@@ -181,6 +184,10 @@ export class EmailService {
         },
       )
       .exec();
+
+    if (updateResult.modifiedCount === 0) {
+      return { type: 'noop' };
+    }
 
     try {
       const transporter = this.createTransporter(context.senderAccount);
@@ -225,9 +232,12 @@ export class EmailService {
         },
       });
 
-      await this.campaignRecipientModel
+      const updateSentResult = await this.campaignRecipientModel
         .updateOne(
-          { _id: context.recipient._id },
+          {
+            _id: context.recipient._id,
+            status: CampaignRecipientStatus.SENDING
+          },
           {
             $set: {
               status: CampaignRecipientStatus.SENT,
@@ -239,6 +249,10 @@ export class EmailService {
           },
         )
         .exec();
+
+      if (updateSentResult.modifiedCount === 0) {
+        return { type: 'noop' };
+      }
 
       await this.campaignModel
         .updateOne(
@@ -674,20 +688,21 @@ export class EmailService {
    * ensures only one concurrent worker wins the race.
    */
   private async tryMarkCampaignCompleted(campaignId: Types.ObjectId): Promise<void> {
-    await this.campaignModel
-      .updateOne(
-        {
-          _id: campaignId,
-          status: CampaignStatus.RUNNING,
-          'stats.queuedRecipients': { $lte: 0 },
-        },
-        {
-          $set: {
-            status: CampaignStatus.COMPLETED,
-          },
-        },
-      )
-      .exec();
+    const campaign = await this.campaignModel.findById(campaignId).exec();
+    if (!campaign) return;
+
+    const stats = campaign.stats || {};
+    const total = stats.totalRecipients || campaign.contactIds.length || 0;
+    const sent = stats.sentRecipients ?? 0;
+    const failed = stats.failedRecipients ?? 0;
+    const skipped = stats.skippedRecipients ?? 0;
+    const processed = sent + failed + skipped;
+
+    if (processed >= total && total > 0) {
+      campaign.status = CampaignStatus.COMPLETED;
+      campaign.stats.queuedRecipients = 0;
+      await campaign.save();
+    }
   }
 
   private async recordSendEvent(input: {
