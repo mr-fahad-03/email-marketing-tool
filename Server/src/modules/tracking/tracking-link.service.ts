@@ -95,9 +95,27 @@ export class TrackingLinkService {
   }
 
   private buildAbsolutePath(pathname: string, overrideBaseUrl?: string | null): string {
-    const baseToUse = overrideBaseUrl
-      ? this.normalizeBaseUrl(overrideBaseUrl)
-      : this.trackingBaseUrl;
+    let baseToUse = this.trackingBaseUrl;
+
+    if (overrideBaseUrl) {
+      try {
+        const parsedOverride = new URL(overrideBaseUrl);
+        const parsedConfig = new URL(this.trackingBaseUrl);
+
+        const isOverrideLocal = this.isLocalHostname(parsedOverride.hostname);
+        const isConfigLocal = this.isLocalHostname(parsedConfig.hostname);
+
+        // Prioritize a non-local/public base URL if available
+        if (isOverrideLocal && !isConfigLocal) {
+          baseToUse = this.trackingBaseUrl;
+        } else {
+          baseToUse = this.normalizeBaseUrl(overrideBaseUrl);
+        }
+      } catch {
+        baseToUse = this.normalizeBaseUrl(overrideBaseUrl);
+      }
+    }
+
     const cleanBase = baseToUse.replace(/\/+$/, '');
     const cleanPrefix = this.resolveApiPrefixForBaseUrl(cleanBase);
     const cleanPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
