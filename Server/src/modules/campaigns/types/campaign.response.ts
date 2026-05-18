@@ -26,6 +26,7 @@ export interface CampaignResponse {
   settings: {
     distributionStrategy: CampaignDistributionStrategy;
   };
+  trackingBaseUrl: string | null;
   stats: {
     totalRecipients: number;
     queuedRecipients: number;

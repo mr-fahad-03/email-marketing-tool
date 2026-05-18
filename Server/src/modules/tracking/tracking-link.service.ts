@@ -32,12 +32,16 @@ export class TrackingLinkService {
     this.warnIfDevelopmentTrackingPointsRemote(configuredBaseUrl);
   }
 
-  generateOpenTrackingUrl(context: LinkContext): string {
+  generateOpenTrackingUrl(context: LinkContext, overrideBaseUrl?: string | null): string {
     const token = this.tokenService.createOpenToken(context);
-    return this.buildAbsolutePath(`/tracking/open/${encodeURIComponent(token)}`);
+    return this.buildAbsolutePath(`/tracking/open/${encodeURIComponent(token)}`, overrideBaseUrl);
   }
 
-  generateTrackedLink(destinationUrl: string, context: LinkContext): string {
+  generateTrackedLink(
+    destinationUrl: string,
+    context: LinkContext,
+    overrideBaseUrl?: string | null,
+  ): string {
     if (!this.isTrackableDestination(destinationUrl)) {
       return destinationUrl;
     }
@@ -46,7 +50,7 @@ export class TrackingLinkService {
       ...context,
       url: destinationUrl,
     });
-    return this.buildAbsolutePath(`/tracking/click/${encodeURIComponent(token)}`);
+    return this.buildAbsolutePath(`/tracking/click/${encodeURIComponent(token)}`, overrideBaseUrl);
   }
 
   applyTrackingToEmailContent(input: {
@@ -57,6 +61,7 @@ export class TrackingLinkService {
     campaignId: string;
     campaignRecipientId: string;
     contactId: string;
+    trackingBaseUrl?: string | null;
   }): { html: string; text: string; openPixelUrl?: string } {
     const context: LinkContext = {
       campaignId: input.campaignId,
@@ -69,16 +74,16 @@ export class TrackingLinkService {
 
     if (input.trackClicks) {
       html = html.replace(/{{TRACKED_LINK:([^}]+)}}/g, (_full, rawUrl: string) =>
-        this.generateTrackedLink(rawUrl.trim(), context),
+        this.generateTrackedLink(rawUrl.trim(), context, input.trackingBaseUrl),
       );
       text = text.replace(/{{TRACKED_LINK:([^}]+)}}/g, (_full, rawUrl: string) =>
-        this.generateTrackedLink(rawUrl.trim(), context),
+        this.generateTrackedLink(rawUrl.trim(), context, input.trackingBaseUrl),
       );
     }
 
     let openPixelUrl: string | undefined;
     if (input.trackOpens) {
-      openPixelUrl = this.generateOpenTrackingUrl(context);
+      openPixelUrl = this.generateOpenTrackingUrl(context, input.trackingBaseUrl);
       html = html.replace(/{{TRACKING_PIXEL_URL}}/g, openPixelUrl);
     }
 
@@ -89,8 +94,11 @@ export class TrackingLinkService {
     };
   }
 
-  private buildAbsolutePath(pathname: string): string {
-    const cleanBase = this.trackingBaseUrl.replace(/\/+$/, '');
+  private buildAbsolutePath(pathname: string, overrideBaseUrl?: string | null): string {
+    const baseToUse = overrideBaseUrl
+      ? this.normalizeBaseUrl(overrideBaseUrl)
+      : this.trackingBaseUrl;
+    const cleanBase = baseToUse.replace(/\/+$/, '');
     const cleanPrefix = this.resolveApiPrefixForBaseUrl(cleanBase);
     const cleanPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
 

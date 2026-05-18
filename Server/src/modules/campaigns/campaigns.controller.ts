@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { AuthUser } from '../../common/types/auth-user.type';
@@ -62,8 +63,12 @@ export class CampaignsController {
   start(
     @Param('id', ParseObjectIdPipe) id: string,
     @CurrentUser() authUser: AuthUser,
+    @Req() request: Request,
   ): Promise<CampaignResponse> {
-    return this.campaignsService.start(id, authUser);
+    const protocol = request.headers['x-forwarded-proto'] || request.protocol;
+    const host = request.headers['x-forwarded-host'] || request.get('host');
+    const trackingBaseUrl = `${protocol}://${host}`;
+    return this.campaignsService.start(id, authUser, trackingBaseUrl);
   }
 
   @Post(':id/pause')
@@ -78,8 +83,12 @@ export class CampaignsController {
   resume(
     @Param('id', ParseObjectIdPipe) id: string,
     @CurrentUser() authUser: AuthUser,
+    @Req() request: Request,
   ): Promise<CampaignResponse> {
-    return this.campaignsService.resume(id, authUser);
+    const protocol = request.headers['x-forwarded-proto'] || request.protocol;
+    const host = request.headers['x-forwarded-host'] || request.get('host');
+    const trackingBaseUrl = `${protocol}://${host}`;
+    return this.campaignsService.resume(id, authUser, trackingBaseUrl);
   }
 
   @Post(':id/cancel')

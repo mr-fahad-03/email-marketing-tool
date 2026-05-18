@@ -346,7 +346,7 @@ export class CampaignsService {
     };
   }
 
-  async start(id: string, authUser: AuthUser): Promise<CampaignResponse> {
+  async start(id: string, authUser: AuthUser, trackingBaseUrl: string): Promise<CampaignResponse> {
     const campaign = await this.findOwnedCampaign(id, authUser);
     const workspaceId = campaign.workspaceId.toString();
 
@@ -379,6 +379,7 @@ export class CampaignsService {
     campaign.stats.queuedRecipients = 0;
     campaign.stats.skippedRecipients = 0;
     campaign.stats.lastStartedAt = new Date();
+    campaign.trackingBaseUrl = trackingBaseUrl;
 
     await campaign.save();
 
@@ -415,7 +416,7 @@ export class CampaignsService {
     return this.toResponse(campaign);
   }
 
-  async resume(id: string, authUser: AuthUser): Promise<CampaignResponse> {
+  async resume(id: string, authUser: AuthUser, trackingBaseUrl: string): Promise<CampaignResponse> {
     const campaign = await this.findOwnedCampaign(id, authUser);
     if (campaign.status !== CampaignStatus.PAUSED) {
       throw new AppException(
@@ -426,6 +427,7 @@ export class CampaignsService {
     }
 
     campaign.status = CampaignStatus.RUNNING;
+    campaign.trackingBaseUrl = trackingBaseUrl;
     await campaign.save();
 
     await this.queueService.enqueueCampaignScheduler({
@@ -767,6 +769,7 @@ export class CampaignsService {
         distributionStrategy:
           campaign.settings?.distributionStrategy ?? CampaignDistributionStrategy.ROUND_ROBIN,
       },
+      trackingBaseUrl: campaign.trackingBaseUrl ?? null,
       stats: {
         totalRecipients: campaign.stats?.totalRecipients ?? 0,
         queuedRecipients: campaign.stats?.queuedRecipients ?? 0,

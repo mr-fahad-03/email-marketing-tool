@@ -184,6 +184,7 @@ export class EmailService {
         campaignId: context.campaign._id.toString(),
         campaignRecipientId: context.recipient._id.toString(),
         contactId: context.contact._id.toString(),
+        trackingBaseUrl: context.campaign.trackingBaseUrl,
       });
       const trackingDiagnostics = {
         opensEnabled: context.campaign.trackOpens,

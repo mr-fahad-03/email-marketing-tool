@@ -1,4 +1,5 @@
-﻿import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { Response } from 'express';
 import { Observable, map } from 'rxjs';
 
 interface ApiSuccessResponse<T> {
@@ -16,11 +17,17 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiSuccessResp
     context: ExecutionContext,
     next: CallHandler<T>,
   ): Observable<ApiSuccessResponse<T> | T> {
-    const request = context.switchToHttp().getRequest<{ originalUrl?: string; url?: string }>();
+    const http = context.switchToHttp();
+    const response = http.getResponse<Response>();
+    const request = http.getRequest<{ originalUrl?: string; url?: string }>();
     const path = request.originalUrl ?? request.url ?? '';
 
     return next.handle().pipe(
       map((data) => {
+        if (response.headersSent) {
+          return data;
+        }
+
         if (
           data !== null &&
           typeof data === 'object' &&

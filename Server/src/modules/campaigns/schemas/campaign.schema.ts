@@ -129,6 +129,9 @@ export class Campaign {
   @Prop({ type: CampaignSettings, default: () => ({}) })
   settings!: CampaignSettings;
 
+  @Prop({ type: String, default: null })
+  trackingBaseUrl!: string | null;
+
   @Prop({ type: CampaignStats, default: () => ({}) })
   stats!: CampaignStats;
 

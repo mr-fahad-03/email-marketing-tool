@@ -1,4 +1,5 @@
-﻿import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { Response } from 'express';
 
 interface ErrorResponseShape {
   success: false;
@@ -17,10 +18,12 @@ interface ErrorResponseShape {
 export class GlobalExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<{
-      status: (statusCode: number) => { json: (body: ErrorResponseShape) => void };
-    }>();
+    const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<{ originalUrl?: string; url?: string }>();
+
+    if (response.headersSent) {
+      return;
+    }
 
     const path = request.originalUrl ?? request.url ?? '';
     const timestamp = new Date().toISOString();
